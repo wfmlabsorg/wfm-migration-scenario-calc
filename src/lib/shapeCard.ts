@@ -7,10 +7,11 @@
 // the book itself (contract and health mix, fate priors, notice ranges, waves as shares of
 // transferring work, wave slip) and the team's transfer/release split, so the tool can derive
 // the departure curve and draw real staircases in its Monte Carlo. Both formats import.
+import { BOOK_LIMITS, sanitiseBook, sanitisePeople } from './book'
 import { cloneDefaults } from './defaults'
 import { run } from './engine'
 import { PATH_META } from './questions'
-import { defaultRegister, sanitiseRegister, syncRegister } from './register'
+import { clampTriple, defaultRegister, sanitiseRegister, syncRegister } from './register'
 import { sanitiseQuestions } from './share'
 import type { Assumption, Inputs, ProjectQuestion, Triple } from './types'
 
@@ -62,8 +63,10 @@ export function toShapeCard(inp: Inputs, title = 'Migration scenario'): ShapeCar
   const assumptions: Record<string, Assumption> = {}
   for (const [path, a] of Object.entries(inp.assumptions)) {
     if (PATH_META[path]?.scaled && a.range) {
-      const v = a.range[1] || 1
-      assumptions[path] = { ...a, range: [a.range[0] / v, 1, a.range[2] / v] }
+      // relative to the likely value; a scaled input at 0 (e.g. no borrowed staff) has no relative range
+      const v = a.range[1]
+      const rel: [number, number, number] = v > 0 ? [Math.max(0.2, a.range[0] / v), 1, Math.min(5, Math.max(1, a.range[2] / v))] : [1, 1, 1]
+      assumptions[path] = { ...a, range: rel }
     } else assumptions[path] = a
   }
   return {
@@ -120,9 +123,11 @@ function checkBook(b: unknown): string | null {
   if (!o.contractMix || !sumsToOne(o.contractMix, ['fixed', 'evergreen', 'tfc'])) return 'book.contractMix must be three shares summing to 1'
   if (!o.healthMix || !sumsToOne(o.healthMix, ['green', 'amber', 'red'])) return 'book.healthMix must be three shares summing to 1'
   for (const h of ['green', 'amber', 'red']) if (!o.priors?.[h] || !sumsToOne(o.priors[h], ['transfer', 'exit', 'replatform'])) return `book.priors.${h} must be three probabilities summing to 1`
-  if (!Array.isArray(o.fixedExpiry) || o.fixedExpiry.length !== 2 || !o.fixedExpiry.every((v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 200) || o.fixedExpiry[0] > o.fixedExpiry[1]) return 'book.fixedExpiry must be [first, last] weeks'
-  if (!o.exitNotice || !triple(o.exitNotice.evergreen) || !triple(o.exitNotice.tfc)) return 'book.exitNotice ranges must be [low, likely, high]'
-  if (!triple(o.replatformOffset) || !triple(o.waveSlip)) return 'book.replatformOffset and waveSlip must be [low, likely, high]'
+  if (!Array.isArray(o.fixedExpiry) || o.fixedExpiry.length !== 2 || !o.fixedExpiry.every((v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= BOOK_LIMITS.expiry) || o.fixedExpiry[0] > o.fixedExpiry[1]) return `book.fixedExpiry must be [first, last] whole weeks within 0–${BOOK_LIMITS.expiry}`
+  const weeks = (t: unknown, hi: number) => triple(t) && t[0] >= 0 && t[2] <= hi
+  if (!o.exitNotice || !weeks(o.exitNotice.evergreen, BOOK_LIMITS.notice) || !weeks(o.exitNotice.tfc, BOOK_LIMITS.notice)) return `book.exitNotice ranges must be [low, likely, high] within 0–${BOOK_LIMITS.notice} weeks`
+  if (!weeks(o.replatformOffset, BOOK_LIMITS.replatform)) return `book.replatformOffset must be [low, likely, high] within 0–${BOOK_LIMITS.replatform} weeks`
+  if (!weeks(o.waveSlip, BOOK_LIMITS.slip)) return `book.waveSlip must be [low, likely, high] within 0–${BOOK_LIMITS.slip} weeks`
   if (!Array.isArray(o.waves) || o.waves.length > 4 || !o.waves.every((w: any) => w && Number.isInteger(w.weeksAfterFreeze) && w.weeksAfterFreeze >= 0 && w.weeksAfterFreeze <= 77 && share(w.pct))) return 'book.waves must be at most 4 {weeksAfterFreeze, pct} with pct 0–1'
   if (!(Number.isInteger(o.granularity) && o.granularity >= 5 && o.granularity <= 200)) return 'book.granularity must be a whole number 5–200'
   const allowed = new Set(['mode', 'contractMix', 'fixedExpiry', 'healthMix', 'priors', 'exitNotice', 'replatformOffset', 'waves', 'waveSlip', 'granularity'])
@@ -134,7 +139,9 @@ function checkPeople(p: unknown): string | null {
   if (!p || typeof p !== 'object') return 'people must be an object'
   const o = p as Record<string, unknown>
   if (typeof o.split !== 'boolean') return 'people.split must be true/false'
-  for (const k of ['postMultTransfer', 'postMultRelease']) if (!(typeof o[k] === 'number' && Number.isFinite(o[k] as number) && (o[k] as number) >= 1 && (o[k] as number) <= 8)) return `people.${k} must be a multiplier 1–8`
+  const mult = (k: string, lo: number) => typeof o[k] === 'number' && Number.isFinite(o[k] as number) && (o[k] as number) >= lo && (o[k] as number) <= 8
+  if (!mult('postMultTransfer', 0.5)) return 'people.postMultTransfer must be a multiplier 0.5–8'
+  if (!mult('postMultRelease', 1)) return 'people.postMultRelease must be a multiplier 1–8'
   if (!share(o.retentionEffect)) return 'people.retentionEffect must be 0–1'
   if (!['release', 'transfer', 'both'].includes(o.retentionTarget as string)) return 'people.retentionTarget must be release, transfer or both'
   const allowed = new Set(['split', 'postMultTransfer', 'postMultRelease', 'retentionEffect', 'retentionTarget'])
@@ -162,6 +169,15 @@ export function checkCard(raw: unknown): string | null {
   const m = c.mix as Record<string, unknown> | undefined
   if (!m || !CHANNELS.every((k) => typeof m[k] === 'number' && (m[k] as number) >= 0)) return 'Mix must give voice, chat and email shares.'
   if (hasLongString(raw)) return 'The card contains a text longer than 200 characters.'
+  // ranges on volumes and headcount travel relative to 1; an absolute range would carry scale
+  const asm = (c.assumptions ?? {}) as Record<string, { range?: unknown }>
+  for (const [path, a] of Object.entries(asm)) {
+    if (!PATH_META[path]?.scaled || !a || typeof a !== 'object' || !Array.isArray(a.range)) continue
+    const r = a.range as unknown[]
+    if (r.length !== 3 || !r.every((x) => typeof x === 'number' && Number.isFinite(x))) return `The card's range for ${path} is malformed.`
+    const [lo, mid, hi] = r as number[]
+    if (Math.abs(mid - 1) > 1e-6 || lo < 0.2 || hi > 5 || lo > mid || mid > hi) return `The card carries an absolute range for ${path}; shape cards carry ranges relative to 1 (0.2–5).`
+  }
   return null
 }
 
@@ -174,6 +190,10 @@ export function fromShapeCard(raw: unknown, teamFte = 250): Inputs {
   if (why) throw new Error(why)
   const card = raw as ShapeCard
   const inp = merge(cloneDefaults(), card.scenario)
+  // the book and people blocks pass through the same sanitising as a link (bounds, whole weeks, shares)
+  const fb = cloneDefaults()
+  inp.book = sanitiseBook(inp.book, fb.book)
+  inp.people = sanitisePeople(inp.people, fb.people)
   inp.pool.fte = teamFte
   inp.borrowed.fte = Math.max(0, (card.borrowedShare ?? 0) * teamFte)
   const mixTotal = card.mix.voice + card.mix.chat + card.mix.email || 1
@@ -208,7 +228,7 @@ export function fromShapeCard(raw: unknown, teamFte = 250): Inputs {
       let node: unknown = inp
       for (const k of keys) node = (node as Record<string, unknown>)[k]
       const v = node as number
-      a.range = [a.range[0] * v, v, a.range[2] * v]
+      a.range = clampTriple(path, [a.range[0] * v, v, a.range[2] * v])
     }
   }
   inp.assumptions = reg

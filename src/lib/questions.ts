@@ -17,10 +17,14 @@ export interface PathMeta {
   defaultRange: (likely: number) => Triple
   /** The value is a volume or headcount: it never leaves in a shape card except as a share. */
   scaled?: boolean
+  /** A decision, not an uncertainty: it is never drawn, whatever range someone types. */
+  lever?: boolean
 }
 
 const rel = (lo: number, hi: number) => (x: number): Triple => [x * lo, x, x * hi]
 const add = (lo: number, hi: number) => (x: number): Triple => [x + lo, x, x + hi]
+// multipliers: symmetric around the likely value (PERT mean = likely), clamped at the path's minimum
+const mult = (lo: number, hi: number, min: number) => (x: number): Triple => [Math.max(min, x * lo), x, x * hi]
 
 /** Every input the register can hold a range for. Structured inputs (waves, step-downs) carry a status only. */
 export const PATH_META: Record<string, PathMeta> = {
@@ -28,8 +32,8 @@ export const PATH_META: Record<string, PathMeta> = {
   'freeze.length': { label: 'Consultation / freeze length', unit: 'weeks', integer: true, min: 0, max: 77, defaultRange: (x) => [Math.round(x * 0.7), x, Math.round(x * 1.8)] },
   'after.noticeWeeks': { label: 'Notice before releases', unit: 'weeks', integer: true, min: 0, max: 26, defaultRange: add(-2, 6) },
   'attrition.annual': { label: 'Base annual attrition', unit: 'pct', min: 0, max: 1, defaultRange: rel(0.75, 1.4) },
-  'attrition.tensionMult': { label: 'Attrition during the freeze', unit: 'x', min: 1, max: 6, defaultRange: (x) => [1, x, x * 1.6] },
-  'attrition.postMult': { label: 'Attrition after the announcement', unit: 'x', min: 1, max: 8, defaultRange: (x) => [Math.max(1, x * 0.6), x, x * 1.6] },
+  'attrition.tensionMult': { label: 'Attrition during the freeze', unit: 'x', min: 1, max: 6, defaultRange: mult(0.6, 1.4, 1) },
+  'attrition.postMult': { label: 'Attrition after the announcement', unit: 'x', min: 1, max: 8, defaultRange: mult(0.6, 1.4, 1) },
   'after.surgePts': { label: 'Absence surge after the announcement', unit: 'pct', min: 0, max: 0.3, defaultRange: (x) => [0, x, Math.max(x * 2.5, x + 0.06)] },
   'after.surgeWeeks': { label: 'Weeks the surge lasts', unit: 'weeks', integer: true, min: 0, max: 52, defaultRange: rel(0.5, 2) },
   'after.trainingHours': { label: 'Training hours per transferee', unit: 'hours', min: 0, max: 200, defaultRange: rel(0.5, 2) },
@@ -46,11 +50,11 @@ export const PATH_META: Record<string, PathMeta> = {
   'service.patience.chat': { label: 'Chat customer patience', unit: 'sec', min: 5, max: 3600, defaultRange: rel(0.5, 2) },
   'service.redialRate': { label: 'Share of extra abandoners who redial', unit: 'pct', min: 0, max: 1, defaultRange: (x) => [Math.max(0, x - 0.2), x, Math.min(1, x + 0.3)] },
   'borrowed.fte': { label: 'Borrowed FTE', unit: 'fte', min: 0, max: 2000, defaultRange: rel(0.5, 1), scaled: true },
-  'borrowed.ahtPenalty': { label: 'Borrowed staff slowdown', unit: 'x', min: 1, max: 3, defaultRange: (x) => [Math.max(1, x - 0.1), x, x + 0.3] },
+  'borrowed.ahtPenalty': { label: 'Borrowed staff slowdown', unit: 'x', min: 1, max: 3, defaultRange: (x) => [Math.max(1, x - 0.2), x, x + 0.2] },
   // people split (drawn only when people.split is on)
-  'people.postMultTransfer': { label: 'Attrition after the announcement, transfer group', unit: 'x', min: 1, max: 8, defaultRange: (x) => [Math.max(1, x * 0.7), x, x * 1.6] },
-  'people.postMultRelease': { label: 'Attrition after the announcement, release group', unit: 'x', min: 1, max: 8, defaultRange: (x) => [Math.max(1, x * 0.6), x, x * 1.6] },
-  'people.retentionEffect': { label: 'Retention offer: cut in leaving', unit: 'pct', min: 0, max: 1, defaultRange: (x) => [x, x, x] }, // a lever, not an uncertainty
+  'people.postMultTransfer': { label: 'Attrition after the announcement, transfer group', unit: 'x', min: 0.5, max: 8, defaultRange: mult(0.6, 1.4, 0.5) }, // below 1: transferees calmer than baseline
+  'people.postMultRelease': { label: 'Attrition after the announcement, release group', unit: 'x', min: 1, max: 8, defaultRange: mult(0.6, 1.4, 1) },
+  'people.retentionEffect': { label: 'Retention offer: cut in leaving', unit: 'pct', min: 0, max: 1, defaultRange: (x) => [x, x, x], lever: true }, // a lever, not an uncertainty
   // book of business (drawn only in book mode; each mix is renormalised to sum 1 after drawing)
   'book.contractMix.fixed': { label: 'Share on fixed-term contracts', unit: 'pct', min: 0, max: 1, defaultRange: add(-0.15, 0.15) },
   'book.contractMix.evergreen': { label: 'Share on rolling contracts', unit: 'pct', min: 0, max: 1, defaultRange: add(-0.15, 0.15) },
@@ -70,7 +74,15 @@ export function pathRequires(path: string): Requires | undefined {
   return undefined
 }
 
-/** Structured inputs that carry a status and note but no drawn range (v1.3). */
+/**
+ * Structured inputs that carry a status and note but no drawn range (v1.3). The book's week ranges
+ * (exit notice, re-platform timing, wave slip) are drawn from their own triples in the Book card;
+ * marking one "confirmed" locks it to its likely value in the simulation. The expiry window and the
+ * priors are the model itself, so their status is a note only. Granularity K (client-equivalents per
+ * future) sets how lumpy the drawn staircases are: band width scales roughly with 1/√K, so set K
+ * near the number of clients of comparable size.
+ */
+export const DRAWN_BOOK_TRIPLES = ['book.exitNotice', 'book.replatformOffset', 'book.waveSlip'] as const
 export const STRUCTURED = ['after.waves', 'demand.stepDowns', 'freeze.backfillBefore', 'channels.targets', 'book.fixedExpiry', 'book.priors', 'book.exitNotice', 'book.replatformOffset', 'book.waveSlip'] as const
 
 /** Labels for structured (status-only) entries. */
@@ -113,12 +125,12 @@ export const QUESTIONS: Question[] = [
   { id: 'S3', group: 'Service', text: 'How long do customers wait before giving up, and how many try again?', why: 'Erlang A: patience decides abandonment in overloaded weeks.', sets: ['service.patience.voice', 'service.patience.chat', 'service.redialRate'] },
   { id: 'S4', group: 'Service', text: 'Is capacity available to borrow, how much, and how much slower is it?', why: 'Borrowed staff fill the gap only on channels they can take.', sets: ['borrowed.fte', 'borrowed.ahtPenalty'] },
   { id: 'B1', group: 'Book', text: 'What share of the book is on fixed-term, rolling, and rolling-with-termination-for-convenience contracts?', why: 'Contract type decides how and when a client can leave before its wave.', sets: ['book.contractMix.fixed', 'book.contractMix.evergreen', 'book.contractMix.tfc'], requires: 'book', hint: 'Shares of workload; they are rescaled to sum to 100%.' },
-  { id: 'B2', group: 'Book', text: 'Over which weeks do the fixed-term contracts expire?', why: 'Fixed-term work that is not renewed leaves at expiry, whatever the waves.', sets: ['book.fixedExpiry'], requires: 'book' },
+  { id: 'B2', group: 'Book', text: 'Over which weeks do the fixed-term contracts expire?', why: 'Fixed-term work that is not renewed leaves at expiry, whatever the waves.', sets: ['book.fixedExpiry'], requires: 'book', hint: 'The window is the model (expiries spread evenly across it); its status is a note.' },
   { id: 'B3', group: 'Book', text: 'How healthy is the book: shares green, amber, red? For the largest clients, does the account owner have a view?', why: 'Health sets the odds of transferring, leaving or re-platforming.', sets: ['book.healthMix.green', 'book.healthMix.amber', 'book.healthMix.red'], requires: 'book' },
   { id: 'B4', group: 'Book', text: 'Given the relationship, how likely is a client to transfer, leave or re-platform?', why: 'The fate probabilities by health (advanced; defaults from the desktop pack).', sets: ['book.priors'], requires: 'book' },
-  { id: 'B5', group: 'Book', text: 'How much notice do rolling clients give after the announcement, with and without a convenience clause?', why: 'Notice decides whether an exit lands before or after the wave (after: it transfers instead).', sets: ['book.exitNotice'], requires: 'book' },
-  { id: 'B6', group: 'Book', text: 'When does re-platformed work leave, after the announcement?', why: 'Re-platformed work leaves without taking staff.', sets: ['book.replatformOffset'], requires: 'book' },
-  { id: 'B7', group: 'Book', text: 'How much could every wave date slip?', why: 'Slip spreads the staircase and delays the point when staff leave with the work.', sets: ['book.waveSlip'], requires: 'book' },
+  { id: 'B5', group: 'Book', text: 'How much notice do rolling clients give after the announcement, with and without a convenience clause?', why: 'Notice decides whether an exit lands before or after the wave (after: it transfers instead).', sets: ['book.exitNotice'], requires: 'book', hint: 'Set the ranges in the Book card; Confirmed locks each range to its likely value in the simulation.' },
+  { id: 'B6', group: 'Book', text: 'When does re-platformed work leave, after the announcement?', why: 'Re-platformed work leaves without taking staff.', sets: ['book.replatformOffset'], requires: 'book', hint: 'Set the range in the Book card; Confirmed locks it to its likely value.' },
+  { id: 'B7', group: 'Book', text: 'How much could every wave date slip?', why: 'Slip spreads the staircase and delays the point when staff leave with the work.', sets: ['book.waveSlip'], requires: 'book', hint: 'Set the range in the Book card; Confirmed locks it to its likely value.' },
 ]
 
 export const STATUS_LABEL = { default: 'Not asked', estimated: 'Estimated', confirmed: 'Confirmed' } as const

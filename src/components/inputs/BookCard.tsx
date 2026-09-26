@@ -1,6 +1,7 @@
 // "Book of business": describe the clients by shares (contract mix, relationship health, fate
 // priors, notice ranges, waves as shares of transferring work, wave slip) and let the engine
 // derive the expected departure curve, instead of hand-entering step-downs and waves.
+import { useEffect, useState } from 'react'
 import { Line } from 'react-chartjs-2'
 import { expectedBook } from '../../lib/book'
 import type { Book, Fate, Inputs, Triple, Wave } from '../../lib/types'
@@ -52,9 +53,16 @@ export function manualStaircase(i: Inputs): number[] {
 
 function ShareSliders<K extends string>({ title, mix, labels, onChange }: { title: string; mix: Record<K, number>; labels: Record<K, string>; onChange: (m: Record<K, number>) => void }) {
   const keys = Object.keys(mix) as K[]
+  const [moved, setMoved] = useState(false)
+  useEffect(() => {
+    if (!moved) return
+    const t = setTimeout(() => setMoved(false), 2000)
+    return () => clearTimeout(t)
+  }, [moved, mix])
   return (
     <div className="mb-2">
-      <p className="text-[10px] font-semibold text-gray-400 uppercase mb-1">{title}</p>
+      <p className="text-[10px] font-semibold text-gray-400 uppercase mb-1">{title} <span className="normal-case font-normal text-gray-500">· the other shares rebalance to keep 100%</span></p>
+      {moved && <p className="text-[10px] text-amber-300 mb-1" role="status">Other shares rebalanced to keep 100%.</p>}
       {keys.map((k) => (
         <div key={k} className="mb-1.5">
           <div className="flex justify-between items-center">
@@ -62,7 +70,7 @@ function ShareSliders<K extends string>({ title, mix, labels, onChange }: { titl
             <span className="text-[11px] font-semibold text-brand-400">{pct(mix[k])}</span>
           </div>
           <input type="range" min={0} max={1} step={0.01} value={mix[k]} aria-label={`${title}: ${labels[k]}`}
-            onChange={(e) => onChange(rebalance(mix, k, parseFloat(e.target.value)))} className="w-full" />
+            onChange={(e) => { setMoved(true); onChange(rebalance(mix, k, parseFloat(e.target.value))) }} className="w-full" />
         </div>
       ))}
     </div>
@@ -138,7 +146,9 @@ export default function BookCard({ inputs, set }: Props) {
           <ShareSliders title="Relationship health (share of workload)" mix={b.healthMix} labels={{ green: 'Green', amber: 'Amber', red: 'Red' }}
             onChange={(m) => setBook((bk) => { bk.healthMix = m })} />
           <details className="mb-2">
-            <summary className="cursor-pointer text-[11px] text-gray-300 min-h-8 flex items-center">Fate by health: transfer · leave · re-platform (advanced)</summary>
+            <summary className="cursor-pointer text-[11px] text-brand-400 hover:text-brand-300 min-h-8 flex items-center gap-1 list-none">
+              <span className="details-chevron text-gray-500">▸</span> Fate by health: transfer · leave · re-platform <span className="text-gray-500">(advanced — click to edit the priors)</span>
+            </summary>
             <PriorsGrid priors={b.priors} onChange={(p) => setBook((bk) => { bk.priors = p })} />
           </details>
           <TripleInput label="Exit notice after the announcement, rolling" value={b.exitNotice.evergreen} unit="weeks" min={0} onChange={(v) => setBook((bk) => { bk.exitNotice.evergreen = v })} />
@@ -162,13 +172,17 @@ export default function BookCard({ inputs, set }: Props) {
           Implied: <b>{pct(f.transfer)}</b> transfers · <b>{pct(f.exit)}</b> leaves · <b>{pct(f.replatform)}</b> re-platforms · transfer share at announcement <b>{pct(expected!.transferShareAtAnnouncement)}</b>
         </p>
       )}
-      <div className="h-[120px]">
+      {isBook && <p className="text-[10px] text-gray-500 mb-1">Less work staying can improve service; it is lost work, not a gain.</p>}
+      <div className="h-[180px]">
         <Line
           data={{ labels, datasets: [line(isBook ? 'Expected book remaining' : 'Book remaining (manual)', isBook && expected ? expected.remaining : manual, '#22d3ee'), ...(isBook ? [line('Manual staircase', manual, '#94a3b8', true)] : [])] }}
           options={{
             responsive: true, maintainAspectRatio: false, animation: false,
-            plugins: { legend: { labels: { color: '#cbd5e1', font: { size: 9 }, boxWidth: 10 } }, tooltip: { enabled: true } },
-            scales: { x: { ticks: { color: '#94a3b8', font: { size: 9 }, maxRotation: 0, autoSkipPadding: 16 }, grid: { display: false } }, y: { min: 0, max: 100, ticks: { color: '#94a3b8', font: { size: 9 } }, grid: { color: 'rgba(55,65,81,0.3)' } } },
+            plugins: { legend: { display: true, position: 'top', labels: { color: '#cbd5e1', font: { size: 10 }, boxWidth: 12 } }, tooltip: { enabled: true, callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y}% of the book` } } },
+            scales: {
+              x: { ticks: { color: '#94a3b8', font: { size: 9 }, maxRotation: 0, autoSkipPadding: 16 }, grid: { display: false } },
+              y: { min: 0, max: 100, title: { display: true, text: '% of book still here', color: '#94a3b8', font: { size: 9 } }, ticks: { color: '#94a3b8', font: { size: 9 }, stepSize: 20, callback: (v) => `${v}%` }, grid: { color: 'rgba(55,65,81,0.3)' } },
+            },
           }}
         />
       </div>

@@ -40,7 +40,7 @@ export interface Fate { transfer: number; exit: number; replatform: number } // 
 /** The team after the announcement: one stock (v1.3) or two, transferees and the release group. */
 export interface People {
   split: boolean // false ⇒ one stock with attrition.postMult (v1.3 behaviour, byte-identical)
-  postMultTransfer: number // attrition multiplier after the announcement, transfer group (≥1)
+  postMultTransfer: number // attrition multiplier after the announcement, transfer group (≥0.5: transferees can be calmer than baseline)
   postMultRelease: number // …release group (≥1)
   retentionEffect: number // 0–1 reduction of post-announcement attrition on the target group (a lever, no range)
   retentionTarget: 'release' | 'transfer' | 'both'
@@ -186,7 +186,13 @@ export interface Flows {
 export interface WeekTrace {
   week: number
   phase: Phase
-  headcount: { start: number; moved: number; attritionRate: number; attritionMultiplier: number; lost: number; hired: number; released: number; end: number; transferGroup?: number; releaseGroup?: number; transferShareAtSplit?: number }
+  headcount: {
+    start: number; moved: number; attritionRate: number; attritionMultiplier: number; lost: number; hired: number; released: number; end: number
+    // people.split, after the announcement: the rates the engine actually used, per group
+    transferGroup?: number; releaseGroup?: number; transferShareAtSplit?: number
+    transferRate?: number; releaseRate?: number; transferMultiplier?: number; releaseMultiplier?: number
+    retentionEffect?: { transfer: number; release: number }; lostTransfer?: number; lostRelease?: number
+  }
   hours: { paidHoursPerHead: number; shrinkage: number; surgePts: number; effectiveShrinkage: number; grossProductive: number; trainingHours: number; productive: number }
   borrowed: { active: boolean; fte: number; ahtPenalty: number; homeEquivalentHours: number; usedHours: number; idleHours: number }
   buckets: {

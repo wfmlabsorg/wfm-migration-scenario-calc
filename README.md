@@ -102,7 +102,7 @@ Background reading on the WFM Labs wiki:
 ```bash
 bun install
 bun run dev      # local development
-bun test         # 230+ tests: Erlang C/A reference values (Erlang A against an event
+bun test         # 250+ tests: Erlang C/A reference values (Erlang A against an event
                  # simulation), invariants, balancing policies, Monte Carlo,
                  # analyst tools, relay rules, quotas, export, no-secrets guard
 bun run build    # production build to dist/

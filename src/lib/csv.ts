@@ -6,11 +6,12 @@ const num = (x: number, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : '')
 
 export function toCsv(r: RunResult): string {
   const groups = r.weeks.some((w) => w.groups)
+  const book = r.book?.remaining // book mode: the curve this run used (the expected curve in the deterministic run)
   const head = [
     'week', 'phase', 'heads', 'hired', 'attrition', 'moved_out', 'released', 'training_hours', 'surge_pts',
     'fte_available', 'fte_required', 'utilisation_pct', 'voice_volume', 'voice_sl_pct', 'voice_abandon_pct', 'chat_volume', 'chat_sl_pct', 'chat_abandon_pct',
     'email_volume', 'email_backlog_hours', 'email_backlog_days', 'email_on_time_index_pct', 'borrowed_hours_used',
-    'meets_all_targets', 'grade', ...(groups ? ['transfer_group_heads', 'release_group_heads'] : []),
+    'meets_all_targets', 'grade', ...(groups ? ['transfer_group_heads', 'release_group_heads'] : []), ...(book ? ['book_remaining'] : []),
   ]
   const rows = r.weeks.map((w) => [
     w.week, w.phase, num(w.heads), num(w.hired), num(w.attrition), num(w.moved), num(w.released), num(w.trainingHours, 0),
@@ -19,6 +20,7 @@ export function toCsv(r: RunResult): string {
     pct(w.email.timeliness), num(w.borrowedUsedHours, 0), Number.isFinite(w.score) ? (w.meetsAll ? 'yes' : 'no') : 'n/a', // n/a: no work left to grade
     Number.isFinite(w.score) ? scoreToGrade(w.score).grade : '',
     ...(groups ? [w.groups ? num(w.groups.transfer) : '', w.groups ? num(w.groups.release) : ''] : []),
+    ...(book ? [num(book[w.week] ?? NaN, 4)] : []),
   ])
   return [head, ...rows].map((r) => r.join(',')).join('\n')
 }

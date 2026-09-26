@@ -1,6 +1,6 @@
 // The only inputs the analyst may change, with ranges. Anything else is refused.
 import { normaliseMixes, validateBook } from '../lib/book'
-import { syncRegister } from '../lib/register'
+import { mixOf, setPath, syncRegister } from '../lib/register'
 import type { Balance, BalanceMode, Book, Channel, Inputs, StepDown, Wave } from '../lib/types'
 
 export interface PathSpec {
@@ -54,7 +54,7 @@ export const PATHS: PathSpec[] = [
   { path: 'service.redialRate', min: 0, max: 1, describe: 'Erlang A: share of extra abandoners who try again next week (0–1)' },
   { path: 'service.abandonCap', min: 0.01, max: 0.5, describe: 'Erlang A: worst voice/chat abandonment above this caps the week at BBB, above twice it at CCC' },
   { path: 'people.split', min: 0, max: 1, boolean: true, describe: 'Split the team at the announcement into a transfer group and a release group (1 yes, 0 no: one stock with attrition.postMult)' },
-  { path: 'people.postMultTransfer', min: 1, max: 8, describe: 'Split on: attrition multiplier after the announcement for staff transferring with the work' },
+  { path: 'people.postMultTransfer', min: 0.5, max: 8, describe: 'Split on: attrition multiplier after the announcement for staff transferring with the work' },
   { path: 'people.postMultRelease', min: 1, max: 8, describe: 'Split on: attrition multiplier after the announcement for staff to be released' },
   { path: 'people.retentionEffect', min: 0, max: 1, describe: 'Split on: retention offer cuts post-announcement leaving of the target group by this share (0–1); a lever' },
   { path: 'book.useBook', min: 0, max: 1, boolean: true, describe: 'Describe departures by the book of business (1) instead of manual step-downs, runoff and waves (0). Use set_book to change the book itself' },
@@ -90,14 +90,6 @@ export interface Changes {
   book?: unknown // replaces the whole book block when present (validated)
 }
 
-/** Changing one share of a mix rescales the others so the mix still sums to 1. */
-function setShare(mix: Record<string, number>, key: string, value: number): void {
-  const others = Object.keys(mix).filter((k) => k !== key)
-  const rest = others.reduce((s, k) => s + mix[k], 0)
-  for (const k of others) mix[k] = rest > 0 ? (mix[k] / rest) * (1 - value) : (1 - value) / others.length
-  mix[key] = value
-}
-
 /** Validates and applies changes to a copy of the inputs. Throws with a readable message on anything invalid. */
 export function applyChanges(base: Inputs, c: Changes): Inputs {
   const next = structuredClone(base)
@@ -120,9 +112,8 @@ export function applyChanges(base: Inputs, c: Changes): Inputs {
       next.book.mode = v === 1 ? 'book' : 'manual'
       continue
     }
-    if (ch.path.startsWith('book.contractMix.') || ch.path.startsWith('book.healthMix.')) {
-      const [, which, key] = ch.path.split('.')
-      setShare(next.book[which as 'contractMix' | 'healthMix'] as unknown as Record<string, number>, key, v)
+    if (mixOf(ch.path)) {
+      setPath(next, ch.path, v) // rescales the other shares of the mix
       continue
     }
     const keys = ch.path.split('.')

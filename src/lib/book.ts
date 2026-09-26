@@ -143,11 +143,13 @@ function cells(book: Book): Cell[] {
 }
 
 const num = (x: unknown, lo: number, hi: number, fb: number) => (typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : fb)
+/** Week ranges are whole weeks: the closed form and the sampler must land the same point on the same week. */
 const triple = (x: unknown, lo: number, hi: number, fb: Triple): Triple => {
   if (!Array.isArray(x) || x.length !== 3) return [...fb]
-  const t = x.map((v, i) => num(v, lo, hi, fb[i])) as Triple
+  const t = x.map((v, i) => Math.round(num(v, lo, hi, fb[i]))) as Triple
   return [Math.min(t[0], t[1]), t[1], Math.max(t[2], t[1])]
 }
+export const BOOK_LIMITS = { notice: 104, replatform: 104, slip: 26, expiry: 156 } as const
 
 /** A book block from a link or card: finite, clamped, shares normalised; anything malformed falls back. */
 export function sanitiseBook(raw: unknown, fb: Book): Book {
@@ -164,7 +166,7 @@ export function sanitiseBook(raw: unknown, fb: Book): Book {
     for (const h of HEALTH) out[h] = mix(o[h], FATES, fb.priors[h]) as Fate
     return out
   }
-  const fe = Array.isArray(r.fixedExpiry) && r.fixedExpiry.length === 2 ? [num(r.fixedExpiry[0], 0, 77, fb.fixedExpiry[0]), num(r.fixedExpiry[1], 0, 77, fb.fixedExpiry[1])] : [...fb.fixedExpiry]
+  const fe = Array.isArray(r.fixedExpiry) && r.fixedExpiry.length === 2 ? [num(r.fixedExpiry[0], 0, BOOK_LIMITS.expiry, fb.fixedExpiry[0]), num(r.fixedExpiry[1], 0, BOOK_LIMITS.expiry, fb.fixedExpiry[1])] : [...fb.fixedExpiry]
   const waves = Array.isArray(r.waves)
     ? r.waves.filter((w: unknown) => !!w && typeof w === 'object').map((w: any) => ({ weeksAfterFreeze: Math.round(num(w.weeksAfterFreeze, 0, 77, 0)), pct: num(w.pct, 0, 1, 0) })).slice(0, 4)
     : fb.waves.map((w) => ({ ...w }))
@@ -175,10 +177,10 @@ export function sanitiseBook(raw: unknown, fb: Book): Book {
     fixedExpiry: [Math.round(Math.min(fe[0], fe[1])), Math.round(Math.max(fe[0], fe[1]))],
     healthMix: mix(r.healthMix, HEALTH, fb.healthMix),
     priors: pri(r.priors),
-    exitNotice: { evergreen: triple(en.evergreen, 0, 77, fb.exitNotice.evergreen), tfc: triple(en.tfc, 0, 77, fb.exitNotice.tfc) },
-    replatformOffset: triple(r.replatformOffset, 0, 77, fb.replatformOffset),
+    exitNotice: { evergreen: triple(en.evergreen, 0, BOOK_LIMITS.notice, fb.exitNotice.evergreen), tfc: triple(en.tfc, 0, BOOK_LIMITS.notice, fb.exitNotice.tfc) },
+    replatformOffset: triple(r.replatformOffset, 0, BOOK_LIMITS.replatform, fb.replatformOffset),
     waves,
-    waveSlip: triple(r.waveSlip, 0, 26, fb.waveSlip),
+    waveSlip: triple(r.waveSlip, 0, BOOK_LIMITS.slip, fb.waveSlip),
     granularity: Math.round(num(r.granularity, 5, 200, fb.granularity)),
   }
 }
@@ -188,7 +190,7 @@ export function sanitisePeople(raw: unknown, fb: People): People {
   const target = r.retentionTarget === 'transfer' || r.retentionTarget === 'both' || r.retentionTarget === 'release' ? r.retentionTarget : fb.retentionTarget
   return {
     split: r.split === true,
-    postMultTransfer: num(r.postMultTransfer, 1, 8, fb.postMultTransfer),
+    postMultTransfer: num(r.postMultTransfer, 0.5, 8, fb.postMultTransfer), // a transfer group can be calmer than baseline
     postMultRelease: num(r.postMultRelease, 1, 8, fb.postMultRelease),
     retentionEffect: num(r.retentionEffect, 0, 1, fb.retentionEffect),
     retentionTarget: target,
@@ -214,23 +216,27 @@ export function validateBook(raw: unknown): Book {
   for (const h of HEALTH) sum1(b.priors?.[h], FATES, `priors.${h}`)
   const tri = (t: unknown, lo: number, hi: number, name: string) => {
     if (!Array.isArray(t) || t.length !== 3 || !t.every((x) => typeof x === 'number' && Number.isFinite(x))) throw new Error(`${name} must be [low, likely, high]`)
+    if (!t.every((x) => Number.isInteger(x))) throw new Error(`${name} must be whole weeks`)
     if (!(t[0] <= t[1] && t[1] <= t[2])) throw new Error(`${name} must satisfy low ≤ likely ≤ high`)
     if (t[0] < lo || t[2] > hi) throw new Error(`${name} must lie within ${lo}–${hi} weeks`)
   }
-  tri(b.exitNotice?.evergreen, 0, 77, 'exitNotice.evergreen')
-  tri(b.exitNotice?.tfc, 0, 77, 'exitNotice.tfc')
-  tri(b.replatformOffset, 0, 77, 'replatformOffset')
-  tri(b.waveSlip, 0, 26, 'waveSlip')
+  tri(b.exitNotice?.evergreen, 0, BOOK_LIMITS.notice, 'exitNotice.evergreen')
+  tri(b.exitNotice?.tfc, 0, BOOK_LIMITS.notice, 'exitNotice.tfc')
+  tri(b.replatformOffset, 0, BOOK_LIMITS.replatform, 'replatformOffset')
+  tri(b.waveSlip, 0, BOOK_LIMITS.slip, 'waveSlip')
   const fe = b.fixedExpiry
-  if (!Array.isArray(fe) || fe.length !== 2 || !fe.every((x) => Number.isInteger(x) && x >= 0 && x <= 77) || fe[0] > fe[1]) throw new Error('fixedExpiry must be two whole weeks [first, last] within 0–77')
+  if (!Array.isArray(fe) || fe.length !== 2 || !fe.every((x) => Number.isInteger(x) && x >= 0 && x <= BOOK_LIMITS.expiry) || fe[0] > fe[1]) throw new Error(`fixedExpiry must be two whole weeks [first, last] within 0–${BOOK_LIMITS.expiry}`)
   if (!Array.isArray(b.waves) || b.waves.length > 4) throw new Error('waves must be a list of at most 4')
   let ws = 0
+  const offsets = new Set<number>()
   for (const w of b.waves) {
     if (!Number.isInteger(w?.weeksAfterFreeze) || w.weeksAfterFreeze < 0 || w.weeksAfterFreeze > 77) throw new Error('wave weeksAfterFreeze must be a whole number 0–77')
+    if (offsets.has(w.weeksAfterFreeze)) throw new Error('two waves share the same week; merge them')
+    offsets.add(w.weeksAfterFreeze)
     if (!(typeof w.pct === 'number' && w.pct >= 0 && w.pct <= 1)) throw new Error('wave pct must be 0–1 (share of transferring work)')
     ws += w.pct
   }
-  if (ws > 1 + 1e-6) throw new Error('wave shares of transferring work must sum to at most 1')
+  if (ws > 1 + 1e-3) throw new Error('wave shares of transferring work must sum to at most 1')
   if (!Number.isInteger(b.granularity) || b.granularity < 5 || b.granularity > 200) throw new Error('granularity must be a whole number 5–200')
   return sanitiseBook(b, b as Book)
 }
@@ -255,10 +261,16 @@ const tail = (p: number[]) => { // S[k] = P(X > k)
  * `freezeEnd` is the announcement week. Weeks run 0 … horizon−1; departures at week w mean the
  * work is gone from week w on. Anything that would leave after the horizon stays.
  */
+/** Last week any departure can land, so the closed form sees every distribution's full support. */
+function supportEnd(book: Book, freezeEnd: number, W: number): number {
+  const maxOffset = book.waves.reduce((m, w) => Math.max(m, Math.round(w.weeksAfterFreeze)), 0)
+  return Math.max(W, freezeEnd + maxOffset + book.waveSlip[2], freezeEnd + book.exitNotice.evergreen[2], freezeEnd + book.exitNotice.tfc[2], freezeEnd + book.replatformOffset[2], book.fixedExpiry[1]) + 1
+}
+
 export function expectedBook(inp: Inputs, freezeEnd: number): BookCurve {
   const W = inp.horizonWeeks
   const book = inp.book
-  const maxK = W + 1 // one spare bucket for "after the horizon"
+  const maxK = supportEnd(book, freezeEnd, W) // every departure lands inside 0…maxK, so late fates are counted right
   const remaining = new Array(W).fill(0)
   const transferLeaving = new Array(W).fill(0)
   const exitLeaving = new Array(W).fill(0)
@@ -303,7 +315,8 @@ export function expectedBook(inp: Inputs, freezeEnd: number): BookCurve {
       }
     }
     if (!waves.length) {
-      // no waves: transfers never leave; exits and re-platforming leave on their own weeks
+      // no waves: transfers never leave (they count as transfers that stay); exits and re-platforming leave on their own weeks
+      implied.transfer += c.share * c.fate.transfer
       for (let k = 0; k <= maxK; k++) {
         depE[k] += c.share * c.fate.exit * ex[k]
         depR[k] += c.share * c.fate.replatform * repl[k]
@@ -323,6 +336,7 @@ export function expectedBook(inp: Inputs, freezeEnd: number): BookCurve {
     implied.exit += depE[k]
     implied.replatform += depR[k]
   }
+  // fates over the whole book (departures inside and beyond the horizon), so they are the book's odds, not the horizon's
   const total = implied.transfer + implied.exit + implied.replatform || 1
   const impliedFates: Fate = { transfer: implied.transfer / total, exit: implied.exit / total, replatform: implied.replatform / total }
   return { remaining, transferLeaving, exitLeaving, replatformLeaving, impliedFates, transferShareAtAnnouncement: tauOf(remaining, transferLeaving, freezeEnd, W) }
@@ -358,7 +372,7 @@ export function sampledBook(inp: Inputs, freezeEnd: number, rng: Rng): BookCurve
   const exitLeaving = new Array(W).fill(0)
   const replatformLeaving = new Array(W).fill(0)
   const implied = { transfer: 0, exit: 0, replatform: 0 }
-  const beyond = W + 1 // "never within the horizon"
+  const beyond = Infinity // no wave: a transfer never leaves, and no exit can be "late"
   for (let i = 0; i < K; i++) {
     if (!cs.length) break
     const u = rng() * (acc || 1)
@@ -381,7 +395,7 @@ export function sampledBook(inp: Inputs, freezeEnd: number, rng: Rng): BookCurve
     if (fate === 'transfer') { dep = wave; kind = 'transfer' }
     else if (fate === 'exit') {
       const e = cell.contract === 'fixed'
-        ? Math.round(book.fixedExpiry[0] + ud * (book.fixedExpiry[1] - book.fixedExpiry[0]))
+        ? Math.min(book.fixedExpiry[1], book.fixedExpiry[0] + Math.floor(ud * (book.fixedExpiry[1] - book.fixedExpiry[0] + 1))) // discrete uniform over whole weeks
         : freezeEnd + Math.round(pertQuantile(ud, book.exitNotice[cell.contract]))
       if (e >= wave) { dep = wave; kind = 'transfer' } else { dep = e; kind = 'exit' }
     } else {
@@ -423,18 +437,36 @@ export function pertQuantile(u: number, t: Triple): number {
   return lo + ((a + b) / 2) * (hi - lo)
 }
 
-/** Staff moves implied by a curve: at week w a share of the current team (and of the transfer group) leaves with the work. */
+/**
+ * Staff moves implied by a curve. Only the staff of transferring work move: at the announcement a
+ * share τ of the team is destined to transfer; each wave takes its share of that group. As a share
+ * of the whole current team (one stock, no releases): pct_w = τ·t_w/T_a ÷ (τ·T_w/T_a + 1 − τ), where
+ * T_a is the transferring work still here at the announcement and T_w the part not yet moved.
+ * So the staff of exited or re-platformed clients stay (to be released, or idle) instead of being
+ * shipped with the next wave, and the split reproduces the single stock exactly.
+ */
 export function staffWavesFrom(curve: BookCurve): { week: number; pct: number; pctOfTransferGroup: number }[] {
   const out: { week: number; pct: number; pctOfTransferGroup: number }[] = []
   const W = curve.remaining.length
+  const tau = curve.transferShareAtAnnouncement
   let transferAhead = curve.transferLeaving.reduce((s, x) => s + x, 0)
+  const transferAtAnnouncement = transferAhead
   for (let w = 0; w < W; w++) {
     const t = curve.transferLeaving[w]
     if (t > 1e-12) {
-      const before = w === 0 ? 1 : curve.remaining[w - 1]
-      out.push({ week: w, pct: Math.min(1, t / Math.max(before, 1e-12)), pctOfTransferGroup: Math.min(1, t / Math.max(transferAhead, 1e-12)) })
+      const ofGroup = Math.min(1, t / Math.max(transferAhead, 1e-12))
+      const groupShare = tau * (transferAhead / Math.max(transferAtAnnouncement, 1e-12)) // transfer group ÷ team, before this move
+      const pct = groupShare + (1 - tau) > 1e-12 ? Math.min(1, (groupShare * ofGroup) / (groupShare + (1 - tau))) : 0
+      out.push({ week: w, pct, pctOfTransferGroup: ofGroup })
     }
     transferAhead -= t
   }
   return out
+}
+
+/** Share of the work leaving at week w for any reason, relative to what was still here: the backlog leaves with it. */
+export function departingShare(curve: BookCurve, w: number): number {
+  const before = w === 0 ? 1 : curve.remaining[w - 1]
+  const gone = curve.transferLeaving[w] + curve.exitLeaving[w] + curve.replatformLeaving[w]
+  return before > 1e-12 ? Math.min(1, gone / before) : 0
 }

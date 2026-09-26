@@ -51,10 +51,14 @@ With **Split the team at announcement** on, the team divides at the freeze end i
 current book that the remaining waves will move (in book mode, the book's own τ). The two groups
 then have their own post-announcement attrition multipliers (transferees keep a job and leave
 less; the release group has an end date and leaves more), and a **retention offer** can cut the
-leaving of one group by a share. Waves and training draw on T only; releases come from R only.
-With equal multipliers, no offer and waves summing to 100% the split reproduces the single stock
-exactly; when the waves sum to less, the release group carries the non-transferring work and its
-attrition. Attrition after the announcement is reported by group.
+leaving of one group by a share. Waves and training draw on T only; releases come from R only,
+and are measured against the week's productive hours as the engine computes them (the transfer
+group's training can eat into the release group's hours), so no release happens while the team is
+short. The transfer group's multiplier may be below 1 (transferees can be calmer than baseline).
+With equal multipliers, no offer and no releases the split reproduces the single stock exactly, in
+manual mode with waves summing to 100% and in book mode with any book; when manual waves sum to
+less, the release group carries the non-transferring work and its attrition. Attrition after the
+announcement is reported by group, and `explain_week` shows each group's rate.
 
 ### The book of business (optional)
 
@@ -73,12 +77,20 @@ in shares, so client offboarding can be modelled *before* any exit is decided:
 
 The on-screen line is the **expected** departure curve, computed in closed form from the PERT and
 uniform week distributions (no random numbers), with staff moves derived from the transferring
-work. The Monte Carlo draws **real staircases**: each future samples K client-equivalents with
-their own cell, fate, wave and departure week, plus one wave slip, so the bands carry the
-book's uncertainty, not just the team's. The tool shows the **implied fate shares** and the
-transfer share at the announcement so two descriptions that collapse to the same curve are
-visibly the same. Book mode and manual mode are a switch, never a blend, so nothing is removed
-twice.
+work only: the staff of clients that exit or re-platform stay behind (to be released, or idle),
+exactly as the split treats them, and the email backlog leaves with every departure. Intake, if
+on, replaces only exited and re-platformed work, never transferred work. Implied fates are the
+whole book's odds, counting departures that fall after the horizon (a warning says when
+transferring work leaves after the horizon). The Monte Carlo draws **real staircases**: each
+future samples K client-equivalents with their own cell, fate, wave and departure week, plus one
+wave slip, so the bands carry the book's uncertainty, not just the team's. K matters: band width
+from the book alone scales roughly with 1/√K, so set the granularity near the number of clients of
+comparable size (the analyst can set `book.granularity`). Each mix share is drawn from its own
+stream and the mix rescaled; the week ranges (exit notice, re-platform timing, wave slip) are
+drawn from the ranges in the Book card, and marking one **confirmed** in the register locks it to
+its likely value. The tool shows the **implied fate shares** and the transfer share at the
+announcement so two descriptions that collapse to the same curve are visibly the same. Book mode
+and manual mode are a switch, never a blend, so nothing is removed twice.
 
 ## Allocation within the blended team
 

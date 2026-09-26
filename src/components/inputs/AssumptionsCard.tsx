@@ -22,12 +22,15 @@ const STRUCTURED_LABEL: Record<string, string> = {
   'channels.targets': 'Service targets (set in "Channels")',
   'book.fixedExpiry': 'Fixed-term expiry window (set in "Book of business")',
   'book.priors': 'Fate by health (set in "Book of business")',
-  'book.exitNotice': 'Exit notice ranges (set in "Book of business"; drawn directly)',
-  'book.replatformOffset': 'Re-platform timing (set in "Book of business"; drawn directly)',
-  'book.waveSlip': 'Wave slip (set in "Book of business"; drawn directly)',
+  'book.exitNotice': 'Exit notice ranges (set in "Book of business")',
+  'book.replatformOffset': 'Re-platform timing (set in "Book of business")',
+  'book.waveSlip': 'Wave slip (set in "Book of business")',
 }
 
 /** Whether a question's inputs are active in the current scenario (book mode, team split). */
+/** Structured book ranges whose status decides whether the Monte Carlo draws them. */
+const DRAWN_RANGE_PATHS = new Set(['book.exitNotice', 'book.replatformOffset', 'book.waveSlip', 'book.fixedExpiry'])
+
 export function questionActive(inputs: Inputs, sets: string[]): boolean {
   return sets.every((p) => (p.startsWith('book.') ? inputs.book?.mode === 'book' : p.startsWith('people.') ? !!inputs.people?.split : true))
 }
@@ -105,6 +108,7 @@ function Row({ path, a, set }: { path: string; a: Assumption | undefined; set: P
         </div>
       )}
       {msg && <p className="text-[10px] text-amber-300 mt-0.5" role="status">{msg}</p>}
+      {!meta && DRAWN_RANGE_PATHS.has(path) && <p className="text-[9px] text-gray-600 mt-0.5">The low · likely · high values live in the Book card. Confirmed locks this range to its likely value; estimated and not asked are drawn.</p>}
       {meta && r && <p className="text-[9px] text-gray-600 mt-0.5">{unitOf(path)}{status === 'default' ? ' · generic range until someone answers' : status === 'confirmed' ? ' · fixed; set Estimated to give a range again' : ''}</p>}
       <input placeholder="Owner / note" aria-label={`${path} owner`} value={a?.owner ?? ''} maxLength={60}
         onChange={(e) => update((_, cur) => { cur.owner = e.target.value || undefined })}

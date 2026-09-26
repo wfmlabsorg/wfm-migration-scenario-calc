@@ -7,7 +7,7 @@
 // voice, then chat, then email from whatever is left, with spare hours returned to voice
 // and chat. Shrinkage is applied once, on the supply side.
 
-import { bookWaves, expectedBook, staffWavesFrom } from './book'
+import { bookWaves, departingShare, expectedBook, staffWavesFrom } from './book'
 import { curve } from './erlang'
 import { curveA } from './erlangA'
 import { binomial, type Rng } from './random'
@@ -146,12 +146,17 @@ function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff:
   const out: DemandWeek[] = []
   let existing = 1
   let waveMult = 1
+  let cumExit = 0 // book mode: work that left without transferring (exits + re-platforming), share of the week-0 book
   for (let w = 0; w < W; w++) {
     let f: number
     if (book) {
-      // book mode: the departure curve replaces runoff, step-downs and waves; intake may replace the drop
+      // book mode: the departure curve replaces runoff, step-downs and waves. Intake replaces only the
+      // work that exited or re-platformed (never transferred work), scaled like manual mode by the
+      // share of the non-exited book that has not yet transferred
+      cumExit += book.exitLeaving[w] + book.replatformLeaving[w]
       const left = book.remaining[w]
-      f = left + (inp.demand.intakeOn ? inp.demand.intakePct * (1 - left) : 0)
+      const notTransferred = left / Math.max(1e-12, 1 - cumExit)
+      f = left + (inp.demand.intakeOn ? inp.demand.intakePct * cumExit * Math.min(1, notTransferred) : 0)
     } else {
       if (w >= runoffStart) existing *= 1 - runoff
       for (const s of inp.demand.stepDowns) if (s.week === w) existing *= 1 - s.pct
@@ -419,6 +424,9 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     ? staffWavesFrom(bookCurve).map((x) => ({ week: x.week, pct: x.pct, pctT: x.pctOfTransferGroup }))
     : staffWaves(inp, freezeEnd)
   if (!bookMode && waves.some((wv) => wv.week >= W)) warnings.push('One or more waves fall beyond the horizon; their training still counts but the move does not happen.')
+  const slipLikely = bookMode ? Math.round(inp.book.waveSlip[1]) : 0
+  if (bookMode && bookWaves(inp.book).some((x) => freezeEnd + x.offset + slipLikely >= W)) warnings.push('One or more book waves (with the likely slip) fall beyond the horizon: that work and its staff never leave within the horizon.')
+  if (bookCurve && bookCurve.impliedFates.transfer > 0 && bookCurve.transferShareAtAnnouncement < bookCurve.impliedFates.transfer - 0.02) warnings.push('Part of the transferring work leaves after the horizon, so the transfer group at the announcement is smaller than the book\'s transfer share.')
   const split = inp.people?.split === true
   const ppl = inp.people ?? { split: false, postMultTransfer: post, postMultRelease: post, retentionEffect: 0, retentionTarget: 'release' as const }
   const retT = ppl.retentionTarget === 'transfer' || ppl.retentionTarget === 'both' ? ppl.retentionEffect : 0
@@ -476,6 +484,7 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     }
 
     // 1. waves: staff and the work's email backlog leave with it, in sequence when they share a week
+    //    (book mode: the backlog leaves with every departure, transfers, exits and re-platforming alike)
     let moved = 0
     for (const wv of waves)
       if (wv.week === w) {
@@ -489,9 +498,16 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
           H -= m
           moved += m
         }
-        backlogMoved += backlog * wv.pct
-        backlog *= 1 - wv.pct
+        if (!bookCurve) {
+          backlogMoved += backlog * wv.pct
+          backlog *= 1 - wv.pct
+        }
       }
+    if (bookCurve) {
+      const sh = departingShare(bookCurve, w)
+      backlogMoved += backlog * sh
+      backlog *= 1 - sh
+    }
 
     // 2. attrition
     const mult = phase === 'pre' ? 1 : phase === 'freeze' ? tension : post
@@ -499,9 +515,11 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     let lost: number
     let lostT = 0
     let lostR = 0
+    let pT = NaN
+    let pR = NaN
     if (splitDone) {
-      const pT = Math.min(1, (inp.attrition.annual / 52) * ppl.postMultTransfer * (1 - retT))
-      const pR = Math.min(1, (inp.attrition.annual / 52) * ppl.postMultRelease * (1 - retR))
+      pT = Math.min(1, (inp.attrition.annual / 52) * ppl.postMultTransfer * (1 - retT))
+      pR = Math.min(1, (inp.attrition.annual / 52) * ppl.postMultRelease * (1 - retR))
       lostT = opts.rng ? Math.min(T, binomial(opts.rng, Math.round(T), pT)) : T * pT
       lostR = opts.rng ? Math.min(R, binomial(opts.rng, Math.round(R), pR)) : R * pR
       T -= lostT
@@ -539,7 +557,12 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
       const excessNow = Math.max(0, backlog - inp.channels.email.targetDays * dailyNow)
       needHours = Math.max(needHours, d.bucketBindHours, d.interactiveNeedHours + d.emailArrivalHours + excessNow / 4)
       if (splitDone) {
-        const capacity = T * prodPerHead + R * grossPerHead
+        // the week's productive hours as step 5 will compute them: everyone's gross hours less the
+        // transfer group's training (which can exceed its own hours and eat into the release group's)
+        let trainingT = 0
+        for (const wv of waves)
+          if (inp.after.trainingWeeks > 0 && w >= wv.week - inp.after.trainingWeeks && w < wv.week) trainingT += (T * wv.pctT * inp.after.trainingHours) / inp.after.trainingWeeks
+        const capacity = (T + R) * grossPerHead - trainingT
         released = Math.max(0, Math.min(R, (capacity - (1 + inp.after.releaseBuffer) * needHours) / grossPerHead))
         R -= released
         H = T + R
@@ -669,7 +692,12 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
         phase,
         headcount: {
           start: headsAtStart, moved, attritionRate: p, attritionMultiplier: mult, lost, hired, released, end: H,
-          ...(splitDone ? { transferGroup: T, releaseGroup: R, transferShareAtSplit: tauAtSplit } : {}),
+          ...(splitDone ? {
+            transferGroup: T, releaseGroup: R, transferShareAtSplit: tauAtSplit,
+            // after the split the single-stock rate above is not used: each group has its own
+            transferRate: pT, releaseRate: pR, transferMultiplier: ppl.postMultTransfer, releaseMultiplier: ppl.postMultRelease,
+            retentionEffect: { transfer: retT, release: retR }, lostTransfer: lostT, lostRelease: lostR,
+          } : {}),
         },
         hours: {
           paidHoursPerHead: paidHours, shrinkage, surgePts: surge, effectiveShrinkage: Math.min(0.95, shrinkage + surge),
@@ -736,6 +764,6 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     })
   }
   flows.end = H
-  const waveWeeksOut = bookMode ? bookWaves(inp.book).map((x) => freezeEnd + x.offset) : waves.map((x) => x.week)
+  const waveWeeksOut = bookMode ? bookWaves(inp.book).map((x) => freezeEnd + x.offset + slipLikely) : waves.map((x) => x.week)
   return { trace, weeks, flows, emailBacklogMovedHours: backlogMoved, freezeStart, freezeEnd, waveWeeks: waveWeeksOut, warnings, ...(bookCurve ? { book: bookCurve } : {}) }
 }

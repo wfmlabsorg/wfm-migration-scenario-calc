@@ -5,10 +5,11 @@
 // (common random numbers).
 
 import { normaliseMixes, sampledBook } from './book'
+import { DRAWN_BOOK_TRIPLES } from './questions'
 import { run } from './engine'
 import { mulberry32, pert } from './random'
 import { QUESTIONS } from './questions'
-import { drawn, setPath, syncRegister } from './register'
+import { drawn, mixOf, setPath, syncRegister } from './register'
 import type { BookCurve, Inputs } from './types'
 
 export const MC_METRICS = ['voice', 'chat', 'email', 'fteAvail', 'fteReq', 'heads'] as const
@@ -36,9 +37,24 @@ export function hash32(s: string): number {
 }
 const stream = (seed: number, key: string, draw: number) => mulberry32((seed ^ hash32(key) ^ Math.imul(draw + 1, 0x9e3779b1)) >>> 0)
 
-/** Inputs answered by one question share a random stream (forecast error is a common shock). */
+/**
+ * Inputs answered by one question share a random stream (forecast error is a common shock),
+ * except the shares of a mix: those draw independently and are then rescaled to sum to 1, so a
+ * book's composition really is uncertain rather than moving as one block.
+ */
 const STREAM_KEY: Record<string, string> = {}
-for (const q of QUESTIONS) if (q.sets.length > 1) for (const p of q.sets) STREAM_KEY[p] = `q:${q.id}`
+for (const q of QUESTIONS) if (q.sets.length > 1) for (const p of q.sets) if (!mixOf(p)) STREAM_KEY[p] = `q:${q.id}`
+
+/** Book week ranges whose register status is "confirmed" are locked to their likely value in the simulation. */
+export function lockConfirmedBookRanges(x: Inputs): void {
+  for (const path of DRAWN_BOOK_TRIPLES) {
+    if (x.assumptions[path]?.status !== 'confirmed') continue
+    const lock = (t: [number, number, number]): [number, number, number] => [t[1], t[1], t[1]]
+    if (path === 'book.exitNotice') x.book.exitNotice = { evergreen: lock(x.book.exitNotice.evergreen), tfc: lock(x.book.exitNotice.tfc) }
+    else if (path === 'book.replatformOffset') x.book.replatformOffset = lock(x.book.replatformOffset)
+    else x.book.waveSlip = lock(x.book.waveSlip)
+  }
+}
 
 /** The values one future draws for every ranged register entry (the register is synced first). */
 export function drawAssumptions(inp: Inputs, seed: number, draw: number): Record<string, number> {
@@ -72,6 +88,7 @@ export function simulate(input: Inputs, draws: number, seed: number): McBands {
     let length = inp.freeze.endWeek - inp.freeze.startWeek
     for (const [path, v] of Object.entries(drawAssumptions(inp, seed, d))) {
       if (path === 'freeze.length') length = v
+      else if (mixOf(path)) { const m = mixOf(path)!; (x.book[m.which] as unknown as Record<string, number>)[m.key] = v } // raw share; rescaled below
       else setPath(x, path, v)
     }
     const freezeEnd = Math.round(x.freeze.startWeek + length)
@@ -80,6 +97,7 @@ export function simulate(input: Inputs, draws: number, seed: number): McBands {
     let bookCurve: BookCurve | undefined
     if (x.book?.mode === 'book') {
       normaliseMixes(x)
+      lockConfirmedBookRanges(x)
       bookCurve = sampledBook(x, freezeEnd, stream(seed, 'book', d))
     }
     const r = run(x, { rng: stream(seed, 'attrition', d), freezeEndOverride: freezeEnd, quantiseLoad: true, bookCurve })

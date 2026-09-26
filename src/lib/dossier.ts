@@ -26,6 +26,7 @@ const n = (x: number, d = 1) => (Number.isFinite(x) ? x.toLocaleString('en-US', 
 const row = (cells: (string | number)[]) => `| ${cells.join(' | ')} |`
 
 function assumptions(i: Inputs): string {
+  const bookMode = i.book?.mode === 'book'
   const c = i.channels
   const groups: [string, [string, string, string][]][] = [
     ['Channels', [
@@ -50,14 +51,14 @@ function assumptions(i: Inputs): string {
       ['Backfill before freeze', i.freeze.backfillBefore ? 'yes' : 'no', 'Leavers replaced before the freeze starts'],
     ]],
     ['Demand change', [
-      ['Runoff', `${pct(i.demand.runoffPctWeek, 1)} a week from week ${i.demand.runoffStartWeek ?? i.freeze.startWeek}`, 'Existing book lost each week'],
-      ['Step-downs', i.demand.stepDowns.map((s) => `week ${s.week}: −${pct(s.pct)}`).join('; ') || 'none', 'Share of the existing book removed that week (e.g. contract ends)'],
+      ['Runoff', `${pct(i.demand.runoffPctWeek, 1)} a week from week ${i.demand.runoffStartWeek ?? i.freeze.startWeek}${bookMode ? ' — ignored (book mode)' : ''}`, 'Existing book lost each week'],
+      ['Step-downs', (i.demand.stepDowns.map((s) => `week ${s.week}: −${pct(s.pct)}`).join('; ') || 'none') + (bookMode ? ' — ignored (book mode)' : ''), 'Share of the existing book removed that week (e.g. contract ends)'],
       ['Intake', i.demand.intakeOn ? `on, replaces ${pct(i.demand.intakePct)} of runoff` : 'off', 'New demand taken on'],
     ]],
     ['After the freeze', [
       ['Attrition after announcement', `× ${i.attrition.postMult}`, 'Attrition multiplier after the freeze ends'],
       ['Absence surge', `+${pct(i.after.surgePts)} shrinkage for ${i.after.surgeWeeks} weeks`, 'Extra absence after the announcement'],
-      ['Waves', i.after.waves.map((w, k) => `${k + 1}: ${pct(w.pct)} of the book at freeze end + ${w.weeksAfterFreeze} wk`).join('; ') || 'none', 'Work and the same share of staff move out'],
+      ['Waves', (i.after.waves.map((w, k) => `${k + 1}: ${pct(w.pct)} of the book at freeze end + ${w.weeksAfterFreeze} wk`).join('; ') || 'none') + (bookMode ? ' — ignored (book mode; see Book of business)' : ''), 'Work and the same share of staff move out'],
       ['Training', `${i.after.trainingHours} h per transferee over ${i.after.trainingWeeks} weeks before each wave`, 'Time off the floor before cutover'],
       ['Releases', i.after.releasesOn ? `on, after ${i.after.noticeWeeks} weeks' notice, ${pct(i.after.releaseBuffer)} buffer` : 'off', 'Surplus staff released'],
     ]],
@@ -154,6 +155,29 @@ function registerSection(i: Inputs): string {
   ].join('\n')
 }
 
+/** The attrition arithmetic of the worked example: one stock, or two groups after the split. */
+function attritionLines(i: Inputs, t: WeekTrace): string[] {
+  const h = t.headcount
+  const base = i.attrition.annual / 52
+  const g = h as WeekTrace['headcount'] & { lostTransfer?: number; lostRelease?: number }
+  if (i.people?.split && t.phase === 'post' && typeof g.transferGroup === 'number' && typeof g.releaseGroup === 'number') {
+    const p = i.people
+    const rhoT = p.retentionTarget === 'transfer' || p.retentionTarget === 'both' ? p.retentionEffect : 0
+    const rhoR = p.retentionTarget === 'release' || p.retentionTarget === 'both' ? p.retentionEffect : 0
+    const qT = Math.min(1, base * p.postMultTransfer * (1 - rhoT))
+    const qR = Math.min(1, base * p.postMultRelease * (1 - rhoR))
+    const lostT = typeof g.lostTransfer === 'number' ? g.lostTransfer : g.transferGroup * qT
+    const lostR = typeof g.lostRelease === 'number' ? g.lostRelease : g.releaseGroup * qR
+    return [
+      `- The team is split (announcement week ${i.freeze.endWeek}${typeof g.transferShareAtSplit === 'number' ? `, transfer share ${pct(g.transferShareAtSplit, 1)}` : ''}): transfer group ${n(g.transferGroup, 2)}, release group ${n(g.releaseGroup, 2)} heads at the start of the week.`,
+      `- Transfer group: q = ${pct(i.attrition.annual)} ÷ 52 × ${p.postMultTransfer}${rhoT ? ` × (1 − ${pct(rhoT)})` : ''} = ${pct(qT, 3)}; lost ${n(lostT, 2)}.`,
+      `- Release group: q = ${pct(i.attrition.annual)} ÷ 52 × ${p.postMultRelease}${rhoR ? ` × (1 − ${pct(rhoR)})` : ''} = ${pct(qR, 3)}; lost ${n(lostR, 2)}.`,
+      `- Lost in total ${n(h.lost, 2)}. Hired ${n(h.hired, 2)}; released ${n(h.released, 2)} (release group only).`,
+    ]
+  }
+  return [`- Attrition rate q = ${pct(i.attrition.annual)} ÷ 52 × ${h.attritionMultiplier} = ${pct(h.attritionRate, 3)}; lost ${n(h.lost, 2)}. Hired ${n(h.hired, 2)}; released ${n(h.released, 2)}.`]
+}
+
 function workedExample(i: Inputs, t: WeekTrace): string {
   const h = t.headcount
   const hr = t.hours
@@ -167,7 +191,7 @@ function workedExample(i: Inputs, t: WeekTrace): string {
     '',
     '**1. Headcount**',
     `- Start ${n(h.start, 2)} heads; waves move out ${n(h.moved, 2)}.`,
-    `- Attrition rate q = ${pct(i.attrition.annual)} ÷ 52 × ${h.attritionMultiplier} = ${pct(h.attritionRate, 3)}; lost ${n(h.lost, 2)}. Hired ${n(h.hired, 2)}; released ${n(h.released, 2)}.`,
+    ...attritionLines(i, t),
     `- End = ${n(h.start, 2)} − ${n(h.moved, 2)} − ${n(h.lost, 2)} + ${n(h.hired, 2)} − ${n(h.released, 2)} = **${n(h.end, 2)}**.`,
     '',
     '**2. Productive hours**',
@@ -199,13 +223,15 @@ function workedExample(i: Inputs, t: WeekTrace): string {
   return lines.join('\n')
 }
 
-function weeklyTable(r: RunResult): string {
-  const head = '| Wk | Phase | Heads | FTE avail | FTE req | Voice SL | Voice ab | Chat SL | Chat ab | Email on-time | Backlog d | Util | Grade |'
+function weeklyTable(r: RunResult, split = false): string {
+  const groupHead = split ? ' Transfer grp | Release grp |' : ''
+  const head = `| Wk | Phase | Heads |${groupHead} FTE avail | FTE req | Voice SL | Voice ab | Chat SL | Chat ab | Email on-time | Backlog d | Util | Grade |`
   const rows = r.weeks.map((w) => row([
-    w.week, w.phase, n(w.heads), n(w.fteAvail), n(w.fteReq), pct(w.voice.sl), pct(w.voice.abandonRate), pct(w.chat.sl), pct(w.chat.abandonRate), pct(w.email.timeliness),
+    w.week, w.phase, n(w.heads), ...(split ? [w.groups ? n(w.groups.transfer) : '—', w.groups ? n(w.groups.release) : '—'] : []),
+    n(w.fteAvail), n(w.fteReq), pct(w.voice.sl), pct(w.voice.abandonRate), pct(w.chat.sl), pct(w.chat.abandonRate), pct(w.email.timeliness),
     n(w.email.backlogDays, 2), pct(w.utilisation), Number.isFinite(w.score) ? scoreToGrade(w.score).grade : '— (no work left)',
   ]))
-  return [head, '|---|---|---|---|---|---|---|---|---|---|---|---|---|', ...rows].join('\n')
+  return [head, '|---|---|---|' + (split ? '---|---|' : '') + '---|---|---|---|---|---|---|---|---|---|', ...rows].join('\n')
 }
 
 function toolSummary(t: ToolEvent): string {
@@ -307,7 +333,7 @@ export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat
     '',
     '## 7. Weekly results',
     '',
-    weeklyTable(result),
+    weeklyTable(result, !!inputs.people?.split),
     '',
   ]
   if (result.warnings.length) parts.push('Warnings: ' + result.warnings.join(' '), '')

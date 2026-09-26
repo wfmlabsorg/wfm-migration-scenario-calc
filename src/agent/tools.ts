@@ -4,7 +4,7 @@ import { run } from '../lib/engine'
 import { scoreToGrade } from '../lib/grade'
 import { kpis } from '../lib/kpis'
 import { QUESTIONS } from '../lib/questions'
-import { recordAnswer, requirementMet, statusCounts } from '../lib/register'
+import { activePath, recordAnswer, requirementMet, statusCounts } from '../lib/register'
 import type { McBands } from '../lib/montecarlo'
 import type { Inputs, RunResult } from '../lib/types'
 import { applyChanges, PATHS, type Change } from './schema'
@@ -101,7 +101,9 @@ export class AgentTools {
         })
         const result = run(inputs)
         this.runs.set(label, { inputs, result })
-        return JSON.stringify({ label, results: this.headline({ inputs, result }), warnings: result.warnings, weekly: tidy(weeklyTable(result), 3) })
+        // changes to inputs the scenario's mode does not use (book.* in manual mode, people.* with the split off) have no effect: say so
+        const inert = ((input.changes as Change[]) ?? []).map((c) => c.path).filter((p) => p !== 'book.useBook' && p !== 'people.split' && !activePath(inputs, p))
+        return JSON.stringify({ label, results: this.headline({ inputs, result }), warnings: [...result.warnings, ...(inert.length ? [`No effect in this mode: ${inert.join(', ')} (turn on book mode / the split first).`] : [])], weekly: tidy(weeklyTable(result), 3) })
       }
       case 'explain_week': {
         const s = this.resolve(String(input.label ?? ''))
@@ -160,9 +162,9 @@ export class AgentTools {
         const { label: _l, ...book } = input as Record<string, unknown>
         void _l
         const next = applyChanges(this.screen(), { book: { ...book, mode: 'book' } })
-        const curve = expectedBook(next, run(next).freezeEnd)
+        const result = run(next)
+        const curve = result.book ?? expectedBook(next, result.freezeEnd)
         if (label) {
-          const result = run(next)
           this.runs.set(label, { inputs: next, result })
           return JSON.stringify({ label, results: this.headline({ inputs: next, result }), impliedFates: tidy(curve.impliedFates, 3), transferShareAtAnnouncement: tidy(curve.transferShareAtAnnouncement, 3) })
         }

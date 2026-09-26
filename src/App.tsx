@@ -86,6 +86,7 @@ export default function App() {
   const workerRef = useRef<Worker | null>(null)
   const [showAgent, setShowAgent] = useState(false)
   const [undo, setUndo] = useState<{ prev: Inputs; label: string; message: string } | null>(null)
+  const [bannerFull, setBannerFull] = useState(false)
   const [linkCommit] = useState(() => commitOf(window.location.hash))
   const inputsRef = useRef(inputs)
   inputsRef.current = inputs
@@ -292,6 +293,17 @@ export default function App() {
                 hint="Staff due to transfer and staff facing release leave at different rates; waves and training draw on the transfer group, releases on the release group." />
               {inputs.people.split ? (
                 <>
+                  {(() => {
+                    const g = result.weeks[result.freezeEnd]?.groups
+                    if (!g) return null
+                    const empty = g.release < 0.5
+                    return (
+                      <p className="text-[10px] text-gray-400 mb-2" data-testid="split-groups">
+                        At the announcement (week {result.freezeEnd}): <b className="text-gray-200">{f1(g.transfer)}</b> in the transfer group · <b className="text-gray-200">{f1(g.release)}</b> in the release group.
+                        {empty && <span className="block text-amber-300 mt-0.5">Everyone transfers: the waves cover 100% of the work, so there is nobody to release and the release-group settings have no effect. Lower the waves' total or describe exits in the book.</span>}
+                      </p>
+                    )
+                  })()}
                   <SliderInput label="Attrition after announcement, transfer group" value={inputs.people.postMultTransfer} min={1} max={6} step={0.1} format="multiplier" onChange={(v) => set((i) => { i.people.postMultTransfer = v })} />
                   <SliderInput label="Attrition after announcement, release group" value={inputs.people.postMultRelease} min={1} max={8} step={0.1} format="multiplier" onChange={(v) => set((i) => { i.people.postMultRelease = v })} />
                   <div className="grid grid-cols-2 gap-2">
@@ -375,6 +387,12 @@ export default function App() {
               {inputs.uncertainty.enabled && (
                 <NumberInput label="Futures to simulate" value={inputs.uncertainty.draws} step={250} min={250} max={5000} onChange={(v) => set((i) => { i.uncertainty.draws = Math.min(5000, Math.max(250, Math.round(v))) })} />
               )}
+              {inputs.book.mode === 'book' && (
+                <>
+                  <NumberInput label="Client-equivalents per future (K)" value={inputs.book.granularity} step={5} min={5} max={200} onChange={(v) => set((i) => { i.book.granularity = Math.min(200, Math.max(5, Math.round(v))) })} />
+                  <p className="text-[10px] text-gray-500 mb-3">Each simulated future draws K equal-sized client-equivalents from the book. Fewer means lumpier departures and wider bands; once every assumption is confirmed, K is what sets the remaining band width. Pick a K near the number of clients that matter.</p>
+                </>
+              )}
               <button className="text-[11px] text-gray-400 hover:text-brand-400" onClick={() => { setInputs(cloneDefaults()); setSaved(null) }}>Reset to the demo scenario</button>
             </Card>
           </div>
@@ -389,7 +407,10 @@ export default function App() {
             )}
             {undo && (
               <div className="text-[11px] text-emerald-200 bg-emerald-500/10 border border-emerald-500/30 rounded px-3 py-1.5 flex items-center justify-between gap-2">
-                <span>{undo.message}</span>
+                <span>
+                  {undo.message.length > 300 && !bannerFull ? `${undo.message.slice(0, 300)}… ` : undo.message}
+                  {undo.message.length > 300 && <button className="underline text-emerald-300/80 ml-1" onClick={() => setBannerFull(!bannerFull)}>{bannerFull ? 'less' : 'more'}</button>}
+                </span>
                 <span className="flex gap-3">
                   <button className="underline" onClick={() => { setInputs(undo.prev); setUndo(null) }}>Undo</button>
                   <button className="text-emerald-300/70" onClick={() => setUndo(null)}>Keep</button>
@@ -491,7 +512,7 @@ export default function App() {
                   <table className="w-full text-[11px] font-mono">
                     <thead className="text-gray-400">
                       <tr className="text-right">
-                        {['Wk', 'Phase', 'Heads', 'Avail', 'Req', 'Voice', 'V ab', 'Chat', 'C ab', 'Email', 'Backlog d', 'Util', 'Grade'].map((h) => <th key={h} className="px-2 py-1 font-medium">{h}</th>)}
+                        {['Wk', 'Phase', 'Heads', ...(inputs.people.split ? ['Transfer grp', 'Release grp'] : []), 'Avail', 'Req', 'Voice', 'V ab', 'Chat', 'C ab', 'Email', 'Backlog d', 'Util', 'Grade'].map((h) => <th key={h} className="px-2 py-1 font-medium">{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
@@ -502,6 +523,8 @@ export default function App() {
                             <td className="px-2 py-0.5">{w.week}</td>
                             <td className="px-2 py-0.5 text-gray-500">{w.phase}</td>
                             <td className="px-2 py-0.5">{f1(w.heads)}</td>
+                            {inputs.people.split && <td className="px-2 py-0.5 text-gray-400">{w.groups ? f1(w.groups.transfer) : '—'}</td>}
+                            {inputs.people.split && <td className="px-2 py-0.5 text-gray-400">{w.groups ? f1(w.groups.release) : '—'}</td>}
                             <td className="px-2 py-0.5">{f1(w.fteAvail)}</td>
                             <td className="px-2 py-0.5">{f1(w.fteReq)}</td>
                             <td className="px-2 py-0.5">{pct(w.voice.sl)}</td>

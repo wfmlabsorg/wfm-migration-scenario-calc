@@ -13,7 +13,21 @@ export function getPath(inp: Inputs, path: string): number {
   return typeof node === 'number' ? node : NaN
 }
 
-/** Writes a numeric input by path (clamped to its limits, rounded when it must be whole). */
+/** Changing one share of a mix rescales the others so the mix still sums to 1. */
+export function setShare(mix: Record<string, number>, key: string, value: number): void {
+  const others = Object.keys(mix).filter((k) => k !== key)
+  const rest = others.reduce((s, k) => s + mix[k], 0)
+  for (const k of others) mix[k] = rest > 0 ? (mix[k] / rest) * (1 - value) : (1 - value) / others.length
+  mix[key] = value
+}
+
+/** A path that is one share of a mix (book.contractMix.*, book.healthMix.*), or null. */
+export function mixOf(path: string): { which: 'contractMix' | 'healthMix'; key: string } | null {
+  const m = /^book\.(contractMix|healthMix)\.(\w+)$/.exec(path)
+  return m ? { which: m[1] as 'contractMix' | 'healthMix', key: m[2] } : null
+}
+
+/** Writes a numeric input by path (clamped to its limits, rounded when it must be whole; a mix share rescales its siblings). */
 export function setPath(inp: Inputs, path: string, value: number): void {
   const meta = PATH_META[path]
   let v = value
@@ -23,6 +37,11 @@ export function setPath(inp: Inputs, path: string, value: number): void {
   }
   if (path === 'freeze.length') {
     inp.freeze.endWeek = inp.freeze.startWeek + v
+    return
+  }
+  const mix = mixOf(path)
+  if (mix && inp.book) {
+    setShare(inp.book[mix.which] as unknown as Record<string, number>, mix.key, v)
     return
   }
   const keys = path.split('.')
@@ -42,6 +61,7 @@ export const clampTriple = (path: string, [lo, mid, hi]: Triple): Triple => {
 
 /** The range an input carries at a given status. */
 export function rangeFor(path: string, likely: number, status: Status, given?: Triple): Triple {
+  if (PATH_META[path]?.lever) return [likely, likely, likely] // a decision is never drawn
   if (status === 'default' || !given) {
     const meta = PATH_META[path]
     if (status === 'confirmed' || !meta) return [likely, likely, likely]
@@ -72,7 +92,8 @@ export function syncRegister(inp: Inputs): void {
     if (!a.range || !PATH_META[path]) continue
     const v = getPath(inp, path)
     if (!Number.isFinite(v) || v === a.range[1]) continue
-    if (a.status === 'default') a.range = rangeFor(path, v, 'default')
+    if (PATH_META[path].lever) a.range = [v, v, v]
+    else if (a.status === 'default') a.range = rangeFor(path, v, 'default')
     else if (a.status === 'confirmed' && a.range[0] === a.range[2]) a.range = [v, v, v] // a confirmed point moves with its input and stays a point
     else a.range = clampTriple(path, [Math.min(a.range[0], v), v, Math.max(a.range[2], v)])
   }
@@ -81,7 +102,7 @@ export function syncRegister(inp: Inputs): void {
 /** Records an answer: sets the likely value on screen and the range and status in the register. */
 export function recordAnswer(inp: Inputs, path: string, answer: { low?: number; likely: number; high?: number; status: Status; owner?: string; note?: string }): void {
   if (!PATH_META[path]) throw new Error(`"${path}" has no range in the register`)
-  setPath(inp, path, answer.likely)
+  setPath(inp, path, answer.likely) // a mix share rescales its siblings (their register entries re-centre in syncRegister)
   const likely = getPath(inp, path)
   const given: Triple | undefined = answer.low !== undefined && answer.high !== undefined ? [answer.low, likely, answer.high] : undefined
   inp.assumptions[path] = {
@@ -90,6 +111,7 @@ export function recordAnswer(inp: Inputs, path: string, answer: { low?: number; 
     ...(answer.owner ? { owner: answer.owner } : {}),
     ...(answer.note ? { note: answer.note } : {}),
   }
+  if (mixOf(path)) syncRegister(inp)
 }
 
 /** Whether a mode requirement is met by the scenario (split on, single stock, book mode). */

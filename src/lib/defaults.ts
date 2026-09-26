@@ -3,6 +3,7 @@
 // freeze with no backfill; about a quarter of the work leaving with clients who won't migrate
 // (step-downs) plus a tenth moving to another internal platform; then three migration waves.
 // Volumes were calibrated so week 0 has about 3% more available than required FTE.
+import { defaultRegister } from './register'
 import type { Inputs } from './types'
 
 export const DEFAULTS: Inputs = {
@@ -46,17 +47,12 @@ export const DEFAULTS: Inputs = {
   service: { model: 'A', patience: { voice: 120, chat: 300 }, redialRate: 0.4, abandonCap: 0.1 }, // patience and redial are estimates
   balance: { mode: 'priority', order: ['voice', 'chat', 'email'], emailFloor: 0.9 },
   borrowed: { fte: 0, startWeek: 8, endWeek: 38, ahtPenalty: 1.2, eligible: { voice: true, chat: true, email: true } },
-  uncertainty: {
-    enabled: false,
-    draws: 1000,
-    seed: 20260926,
-    freezeLength: [10, 14, 26],
-    tensionMult: [1.0, 1.5, 2.5],
-    postMult: [1.5, 2.5, 4.0],
-    surgePts: [0, 0.04, 0.1],
-    runoffPctWeek: [0, 0, 0.01],
-  },
+  uncertainty: { enabled: false, draws: 1000, seed: 20260926 },
+  assumptions: {}, // filled below: every generic question starts unanswered
+  projectQuestions: [],
 }
+
+DEFAULTS.assumptions = defaultRegister(DEFAULTS)
 
 export function cloneDefaults(): Inputs {
   return structuredClone(DEFAULTS)

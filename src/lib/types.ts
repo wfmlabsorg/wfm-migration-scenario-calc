@@ -18,6 +18,23 @@ export interface Balance {
   emailFloor: number // floor mode: share of this week's email arrival hours guaranteed first (0–1)
 }
 
+export type Status = 'default' | 'estimated' | 'confirmed'
+
+/** One entry of the assumption register: how sure we are of an input, and who said so. */
+export interface Assumption {
+  range?: Triple // [low, likely, high]; absent for structured inputs (waves, step-downs, targets)
+  status: Status // default = not asked yet (wide generic range); estimated = someone's range; confirmed = signed off
+  owner?: string
+  note?: string
+}
+
+/** A project-specific question that maps to the same inputs as the generic bank. */
+export interface ProjectQuestion {
+  id: string
+  text: string
+  sets: string[]
+}
+
 export interface Wave {
   weeksAfterFreeze: number // cutover week, counted from the end of the freeze
   pct: number // 0–1 share of the book moved out (and the same share of staff); waves summing to 1 = fully migrated
@@ -70,12 +87,9 @@ export interface Inputs {
     enabled: boolean
     draws: number
     seed: number
-    freezeLength: Triple
-    tensionMult: Triple
-    postMult: Triple
-    surgePts: Triple
-    runoffPctWeek: Triple
   }
+  assumptions: Record<string, Assumption> // keyed by input path (see questions.ts PATH_META); drives the Monte Carlo
+  projectQuestions: ProjectQuestion[]
 }
 
 export type Phase = 'pre' | 'freeze' | 'post'

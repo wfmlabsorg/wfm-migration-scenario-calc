@@ -1,7 +1,8 @@
 // Scenario <-> URL hash, so a copied link reproduces the scenario exactly.
 // Links also record the engine commit (v=), so a scenario can be traced to the code that produced it.
 import { DEFAULTS } from './defaults'
-import type { Inputs } from './types'
+import { migrateV12Uncertainty, sanitiseRegister } from './register'
+import type { Inputs, ProjectQuestion } from './types'
 import { SHORT } from './version'
 
 function merge<T>(base: T, patch: unknown): T {
@@ -10,6 +11,15 @@ function merge<T>(base: T, patch: unknown): T {
   if (patch && typeof patch === 'object')
     for (const [k, v] of Object.entries(patch)) if (k in out) out[k] = merge(out[k], v)
   return out as T
+}
+
+/** Project questions from a link or card: short strings, known shapes only. */
+export function sanitiseQuestions(raw: unknown): ProjectQuestion[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((q): q is ProjectQuestion => !!q && typeof q.id === 'string' && typeof q.text === 'string' && Array.isArray(q.sets))
+    .slice(0, 40)
+    .map((q) => ({ id: q.id.slice(0, 20), text: q.text.slice(0, 200), sets: q.sets.filter((x) => typeof x === 'string').slice(0, 8) }))
 }
 
 export function encode(inputs: Inputs): string {
@@ -42,6 +52,11 @@ export function decode(hash: string): Inputs | null {
     const inputs = merge(structuredClone(DEFAULTS), saved)
     // links made before v1.2 have no service model: they were computed with Erlang C and must stay so
     if (!saved || typeof saved !== 'object' || !('service' in saved)) inputs.service = { ...inputs.service, model: 'C' }
+    // links made before v1.3 carried five PERT ranges instead of an assumption register
+    inputs.assumptions = saved && typeof saved === 'object' && 'assumptions' in saved
+      ? sanitiseRegister(saved.assumptions)
+      : migrateV12Uncertainty(saved?.uncertainty)
+    inputs.projectQuestions = sanitiseQuestions(saved?.projectQuestions)
     return inputs
   } catch {
     return null

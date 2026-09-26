@@ -14,13 +14,8 @@ describe('Monte Carlo', () => {
 
   test('point ranges reproduce the deterministic run', () => {
     const i: Inputs = structuredClone(DEFAULTS)
-    const u = i.uncertainty
-    const len = i.freeze.endWeek - i.freeze.startWeek
-    u.freezeLength = [len, len, len]
-    u.tensionMult = [i.attrition.tensionMult, i.attrition.tensionMult, i.attrition.tensionMult]
-    u.postMult = [i.attrition.postMult, i.attrition.postMult, i.attrition.postMult]
-    u.surgePts = [i.after.surgePts, i.after.surgePts, i.after.surgePts]
-    u.runoffPctWeek = [i.demand.runoffPctWeek, i.demand.runoffPctWeek, i.demand.runoffPctWeek]
+    // every assumption confirmed at its likely value: nothing is drawn except binomial attrition
+    for (const a of Object.values(i.assumptions)) if (a.range) a.range = [a.range[1], a.range[1], a.range[1]]
     const draws = 400
     const mc = simulate(i, draws, 7)
     const det = run(i)

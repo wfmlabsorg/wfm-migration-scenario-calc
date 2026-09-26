@@ -5,6 +5,9 @@ import NumberInput from './components/inputs/NumberInput'
 import SliderInput from './components/inputs/SliderInput'
 import BalanceCard from './components/inputs/BalanceCard'
 import ServiceModelCard from './components/inputs/ServiceModelCard'
+import AssumptionsCard from './components/inputs/AssumptionsCard'
+import { syncRegister } from './lib/register'
+import { fromShapeCard, toShapeCard } from './lib/shapeCard'
 import ResultCard from './components/results/ResultCard'
 import { download, toCsv } from './lib/csv'
 import { dossier } from './lib/dossier'
@@ -14,7 +17,7 @@ import { getGradeTable, scoreToGrade } from './lib/grade'
 import type { McBands } from './lib/montecarlo'
 import { commitOf, decode, toHash } from './lib/share'
 import { codeUrl, COMMIT, ENGINE_VERSION, REPO, SHORT } from './lib/version'
-import type { Inputs, RunResult, Triple } from './lib/types'
+import type { Inputs, RunResult } from './lib/types'
 
 const WIKI_ARTICLE = 'https://wiki.wfmlabs.org/wiki/Service_Level_During_Work_Migration'
 const WIKI_PACK = 'https://wiki.wfmlabs.org/wiki/Wiki:Packs/Migration_Service-Level_Simulation'
@@ -43,20 +46,6 @@ function Toggle({ label, checked, onChange, hint }: { label: string; checked: bo
   )
 }
 
-function TripleInput({ label, value, onChange, step, format }: { label: string; value: Triple; onChange: (v: Triple) => void; step: number; format?: (x: number) => string }) {
-  const f = format ?? ((x: number) => String(x))
-  return (
-    <div className="mb-3">
-      <p className="text-xs font-medium text-gray-300 mb-1">{label} <span className="text-[10px] text-gray-500">low · likely · high</span></p>
-      <div className="grid grid-cols-3 gap-1">
-        {value.map((v, i) => (
-          <input key={i} type="number" step={step} value={v} title={f(v)}
-            onChange={(e) => { const n = [...value] as Triple; n[i] = parseFloat(e.target.value) || 0; onChange(n) }} />
-        ))}
-      </div>
-    </div>
-  )
-}
 
 const pct = (x: number, d = 0) => (Number.isFinite(x) ? `${(x * 100).toFixed(d)}%` : '—')
 const f1 = (x: number) => (Number.isFinite(x) ? x.toFixed(1) : '—')
@@ -86,6 +75,7 @@ export default function App() {
   const [saved, setSaved] = useState<Inputs | null>(null)
   const [showCompare, setShowCompare] = useState(true)
   const [showC, setShowC] = useState(false)
+  const [width, setWidth] = useState<{ now: number; was: number | null }>({ now: NaN, was: null })
   const [bands, setBands] = useState<McBands | null>(null)
   const [mcState, setMcState] = useState<'idle' | 'running' | 'partial' | 'done'>('idle')
   const [showInfo, setShowInfo] = useState(false)
@@ -107,6 +97,7 @@ export default function App() {
     setInputs((prev) => {
       const next = structuredClone(prev)
       mutate(next)
+      syncRegister(next) // likely values follow the inputs
       return next
     })
 
@@ -145,6 +136,12 @@ export default function App() {
   }, [inputs])
 
   useEffect(() => () => workerRef.current?.terminate(), [])
+
+  // remember the previous band width so every answer shows how much it narrowed the forecast
+  useEffect(() => {
+    if (mcState !== 'done' || !bands) return
+    setWidth((w) => (Math.abs(w.now - bands.bandWidth) < 1e-9 ? w : { now: bands.bandWidth, was: Number.isFinite(w.now) ? w.now : null }))
+  }, [mcState, bands])
 
   const worstGrade = Number.isFinite(s.worst?.score) ? scoreToGrade(s.worst.score) : null
   const mcGrade = bands ? scoreToGrade(bands.cleanShare) : null
@@ -310,20 +307,17 @@ export default function App() {
               </div>
             </Card>
 
+            <Card title="Assumptions and questions">
+              <Toggle label="Show uncertainty bands (Monte Carlo)" checked={inputs.uncertainty.enabled} onChange={(v) => set((i) => { i.uncertainty.enabled = v })} hint="Draws every assumption from its range; bands show the 10th–90th percentile of futures." />
+              <AssumptionsCard inputs={inputs} set={set} />
+            </Card>
+
             <Card title="Advanced">
               <NumberInput label="Horizon (weeks)" value={inputs.horizonWeeks} step={1} min={13} max={78} onChange={(v) => set((i) => { i.horizonWeeks = Math.min(78, Math.max(13, Math.round(v))) })} />
               <SliderInput label="Schedule fit to demand" value={inputs.profile.scheduleFit} min={0} max={1} step={0.05} format="percent" onChange={(v) => set((i) => { i.profile.scheduleFit = v })} />
               <p className="text-[10px] text-gray-500 mb-3">Intraday shape: peak / shoulder / off-peak carry {inputs.profile.volumeShare.map((x) => pct(x)).join(' / ')} of contacts in {inputs.profile.hourShare.map((x) => pct(x)).join(' / ')} of open hours.</p>
-              <Toggle label="Show uncertainty bands (Monte Carlo)" checked={inputs.uncertainty.enabled} onChange={(v) => set((i) => { i.uncertainty.enabled = v })} hint="Draws the inputs below from ranges; bands show the 10th–90th percentile of futures." />
               {inputs.uncertainty.enabled && (
-                <>
-                  <TripleInput label="Freeze length (weeks)" value={inputs.uncertainty.freezeLength} step={1} onChange={(v) => set((i) => { i.uncertainty.freezeLength = v })} />
-                  <TripleInput label="Tension effect (×)" value={inputs.uncertainty.tensionMult} step={0.1} onChange={(v) => set((i) => { i.uncertainty.tensionMult = v })} />
-                  <TripleInput label="Attrition after announcement (×)" value={inputs.uncertainty.postMult} step={0.1} onChange={(v) => set((i) => { i.uncertainty.postMult = v })} />
-                  <TripleInput label="Absence surge (fraction)" value={inputs.uncertainty.surgePts} step={0.01} onChange={(v) => set((i) => { i.uncertainty.surgePts = v })} />
-                  <TripleInput label="Runoff per week (fraction)" value={inputs.uncertainty.runoffPctWeek} step={0.001} onChange={(v) => set((i) => { i.uncertainty.runoffPctWeek = v })} />
-                  <NumberInput label="Futures to simulate" value={inputs.uncertainty.draws} step={250} min={250} max={5000} onChange={(v) => set((i) => { i.uncertainty.draws = Math.min(5000, Math.max(250, Math.round(v))) })} />
-                </>
+                <NumberInput label="Futures to simulate" value={inputs.uncertainty.draws} step={250} min={250} max={5000} onChange={(v) => set((i) => { i.uncertainty.draws = Math.min(5000, Math.max(250, Math.round(v))) })} />
               )}
               <button className="text-[11px] text-gray-400 hover:text-brand-400" onClick={() => { setInputs(cloneDefaults()); setSaved(null) }}>Reset to the demo scenario</button>
             </Card>
@@ -339,7 +333,7 @@ export default function App() {
             )}
             {undo && (
               <div className="text-[11px] text-emerald-200 bg-emerald-500/10 border border-emerald-500/30 rounded px-3 py-1.5 flex items-center justify-between gap-2">
-                <span>The analyst put scenario “{undo.label}” on screen.</span>
+                <span>{undo.label.startsWith('shape card') ? 'Loaded' : 'The analyst put'} “{undo.label}” on screen.</span>
                 <span className="flex gap-3">
                   <button className="underline" onClick={() => { setInputs(undo.prev); setUndo(null) }}>Undo</button>
                   <button className="text-emerald-300/70" onClick={() => setUndo(null)}>Keep</button>
@@ -380,7 +374,7 @@ export default function App() {
               right={
                 <span className="text-[10px] text-gray-400">
                   {inputs.uncertainty.enabled
-                    ? mcState === 'done' ? `Bands: 10th–90th percentile of ${bands?.draws ?? 0} futures · line: most-likely inputs · ${pct(bands?.cleanShare ?? NaN)} of futures never breach` : 'Simulating futures…'
+                    ? mcState === 'done' ? `Bands: 10th–90th percentile of ${bands?.draws ?? 0} futures · average band ±${f1((width.now * 100) / 2)} pts${width.was !== null ? ` (was ±${f1((width.was * 100) / 2)})` : ''} · ${pct(bands?.cleanShare ?? NaN)} of futures never breach` : 'Simulating futures…'
                     : 'Most-likely inputs'}
                 </span>
               }
@@ -405,6 +399,23 @@ export default function App() {
               )}
               <button onClick={copyLink} className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white">{copied ? 'Link copied' : 'Copy share link'}</button>
               <button onClick={() => download('scenario-dossier.md', dossier(inputs, result, location.href))} className="text-xs px-3 py-1.5 rounded border border-brand-500/50 text-brand-400 hover:bg-brand-500/10" title="Assumptions, approach, equations, worked example and weekly results in one Markdown file, ready for Claude">Export scenario</button>
+              <button onClick={() => download('migration-shape-card.json', JSON.stringify(toShapeCard(inputs), null, 2))} className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white" title="The scenario without its scale (no headcount or volumes): timing, ratios, rates and the assumption register">Export shape card</button>
+              <label className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white cursor-pointer" title="Load a shape card, e.g. from the Claude Desktop pack">
+                Import shape card
+                <input type="file" accept=".json,application/json" className="hidden" onChange={async (e) => {
+                  const f = e.target.files?.[0]
+                  e.target.value = ''
+                  if (!f) return
+                  try {
+                    const size = Number(window.prompt('Model a team of about how many FTE? Bigger pools serve better at the same occupancy, so pick a size near the real one.', '250'))
+                    const next = fromShapeCard(JSON.parse(await f.text()), Number.isFinite(size) && size >= 10 ? Math.round(size) : 250)
+                    setUndo({ prev: inputs, label: `shape card ${f.name}` })
+                    setInputs(next)
+                  } catch (err) {
+                    window.alert(`Could not import this card: ${(err as Error).message}`)
+                  }
+                }} />
+              </label>
               <button onClick={() => download('migration-scenario.csv', toCsv(result))} className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white">Export CSV</button>
               <button onClick={() => setShowTable(!showTable)} className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white">{showTable ? 'Hide' : 'Show'} weekly table</button>
             </div>

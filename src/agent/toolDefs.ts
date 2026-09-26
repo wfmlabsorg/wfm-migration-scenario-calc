@@ -1,5 +1,6 @@
 // Tool definitions for the analyst. The server relay pins these (the browser cannot change them);
 // the browser executes them against the engine. Ranges are enforced by schema.ts applyChanges.
+import { PATH_META } from '../lib/questions'
 import { PATHS } from './schema'
 
 const pathEnum = PATHS.map((p) => p.path)
@@ -97,7 +98,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'run_monte_carlo',
-    description: "Simulate many futures of a scenario, drawing the freeze length, attrition effects, absence surge and runoff from the ranges in its uncertainty settings. Returns the share of futures with no breach, freeze-end percentiles, and the 10th/50th/90th percentile service per channel at the scenario's worst weeks.",
+    description: "Simulate many futures of a scenario, drawing every assumption-register entry that has a range (PERT low/likely/high). Returns the share of futures with no breach, the average band width (how uncertain the forecast still is), the trough range, freeze-end percentiles, and the 10th/50th/90th percentile service per channel at the scenario's worst weeks.",
     strict: true,
     input_schema: {
       type: 'object',
@@ -114,6 +115,25 @@ export const TOOL_DEFS = [
       type: 'object',
       properties: { labels: { type: 'array', items: { type: 'string' } } },
       required: ['labels'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'record_assumption',
+    description: "Record the user's answer to an assumption question on the on-screen scenario: the likely value becomes the input, low/high its range, and status says how sure it is (estimated = someone's range; confirmed = signed off; default = back to the generic range). Only use values the user gave; never mark something confirmed unless they said it is. Fractions for rates and shares (0.14 = 14%); weeks, seconds, hours or multipliers otherwise. The user sees the change and can undo.",
+    strict: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', enum: Object.keys(PATH_META) },
+        low: { type: 'number' },
+        likely: { type: 'number' },
+        high: { type: 'number' },
+        status: { type: 'string', enum: ['estimated', 'confirmed', 'default'] },
+        owner: { type: 'string', description: 'Who gave or owns the answer (role, not a name); empty if unknown.' },
+        note: { type: 'string', description: 'Short note on the answer; empty if none.' },
+      },
+      required: ['path', 'low', 'likely', 'high', 'status', 'owner', 'note'],
       additionalProperties: false,
     },
   },

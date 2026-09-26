@@ -49,6 +49,7 @@ export interface RunOptions {
   traceWeek?: number // record every intermediate for this week in RunResult.trace
   freezeEndOverride?: number
   overrides?: Partial<{ tensionMult: number; postMult: number; surgePts: number; runoffPctWeek: number }>
+  quantiseLoad?: boolean // Monte Carlo: round offered loads to 3 significant figures so Erlang curves are reused
 }
 
 export function allocShares(inp: Inputs): number[] {
@@ -76,7 +77,9 @@ export function scheduledWaves(inp: Inputs, freezeEnd: number): { week: number; 
 }
 
 /** Loads, curves and agents needed for one week's volumes (also used when retries add volume). */
-export function demandWeekFor(inp: Inputs, vol: { voice: number; chat: number; email: number }): DemandWeek {
+const sig3 = (x: number) => (x > 0 ? Number(x.toPrecision(3)) : x)
+
+export function demandWeekFor(inp: Inputs, vol: { voice: number; chat: number; email: number }, quantise = false): DemandWeek {
   const { voice, chat, email } = inp.channels
   const { openHours, paidHours, shrinkage } = inp.pool
   const vs = inp.profile.volumeShare
@@ -91,15 +94,17 @@ export function demandWeekFor(inp: Inputs, vol: { voice: number; chat: number; e
     const aV = intervals > 0 ? ((vol.voice * share) / intervals) * (voice.aht / INTERVAL) : 0
     const ahtC = chat.aht / Math.max(chat.concurrency, 1)
     const aC = intervals > 0 ? ((vol.chat * share) / intervals) * (ahtC / INTERVAL) : 0
-    const v = curve(aV, voice.slSeconds / voice.aht)
-    const c = curve(aC, chat.slSeconds / ahtC)
+    const qV = quantise ? sig3(aV) : aV
+    const qC = quantise ? sig3(aC) : aC
+    const v = curve(qV, voice.slSeconds / voice.aht)
+    const c = curve(qC, chat.slSeconds / ahtC)
     const needV = v.need(voice.slTarget)
     const needC = c.need(chat.slTarget)
     const needHours = (needV + needC) * hours[b]
     interactiveNeedHours += needHours
     if (alloc[b] > 0) bucketBind = Math.max(bucketBind, needHours / alloc[b])
-    const sv: ServiceCurve = useA ? curveA(aV, voice.aht / Math.max(1, svc.patience.voice), voice.slSeconds / voice.aht) : v
-    const sc: ServiceCurve = useA ? curveA(aC, ahtC / Math.max(1, svc.patience.chat), chat.slSeconds / ahtC) : c
+    const sv: ServiceCurve = useA ? curveA(qV, voice.aht / Math.max(1, svc.patience.voice), voice.slSeconds / voice.aht) : v
+    const sc: ServiceCurve = useA ? curveA(qC, ahtC / Math.max(1, svc.patience.chat), chat.slSeconds / ahtC) : c
     return { v, c, needV, needC, sv, sc, sNeedV: useA ? sv.need(voice.slTarget) : needV, sNeedC: useA ? sc.need(chat.slTarget) : needC }
   })
   const emailArrivalHours = (vol.email * email.aht) / 3600
@@ -114,7 +119,7 @@ export function demandWeekFor(inp: Inputs, vol: { voice: number; chat: number; e
   }
 }
 
-function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff: number): DemandWeek[] {
+function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff: number, quantise = false): DemandWeek[] {
   const W = inp.horizonWeeks
   const { voice, chat, email } = inp.channels
   const runoffStart = inp.demand.runoffStartWeek ?? freezeStart
@@ -130,7 +135,7 @@ function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff:
     const newBook = inp.demand.intakeOn ? inp.demand.intakePct * (1 - existing) : 0
     const f = (existing + newBook) * waveMult
     const vol = { voice: voice.volume * f, chat: chat.volume * f, email: email.volume * f }
-    out.push(demandWeekFor(inp, vol))
+    out.push(demandWeekFor(inp, vol, quantise))
   }
   return out
 }
@@ -373,8 +378,9 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
   const freezeEnd = Math.max(freezeStart, Math.round(opts.freezeEndOverride ?? inp.freeze.endWeek))
   const warnings: string[] = []
 
-  const demand = demandPass(inp, freezeStart, freezeEnd, runoff)
-  const base = demandPass({ ...inp, demand: { ...inp.demand, runoffPctWeek: 0, stepDowns: [], intakeOn: false }, after: { ...inp.after, waves: [] } }, freezeStart, freezeEnd, 0)[0]
+  const q = !!opts.quantiseLoad
+  const demand = demandPass(inp, freezeStart, freezeEnd, runoff, q)
+  const base = demandPass({ ...inp, demand: { ...inp.demand, runoffPctWeek: 0, stepDowns: [], intakeOn: false }, after: { ...inp.after, waves: [] } }, freezeStart, freezeEnd, 0, q)[0]
   const waves = scheduledWaves(inp, freezeEnd)
   if (waves.some((wv) => wv.week >= W)) warnings.push('One or more waves fall beyond the horizon; their training still counts but the move does not happen.')
   if (freezeStart === 0 && inp.freeze.backfillBefore) warnings.push('The freeze starts in week 0, so pre-freeze backfill never applies.')
@@ -403,7 +409,7 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     const retriesIn = { voice: retries.voice * stay('voice'), chat: retries.chat * stay('chat') }
     // earlier abandoners who redial add to this week's volume (never under Erlang C: nobody abandons)
     const d = retriesIn.voice > 0 || retriesIn.chat > 0
-      ? demandWeekFor(inp, { voice: demand[w].vol.voice + retriesIn.voice, chat: demand[w].vol.chat + retriesIn.chat, email: demand[w].vol.email })
+      ? demandWeekFor(inp, { voice: demand[w].vol.voice + retriesIn.voice, chat: demand[w].vol.chat + retriesIn.chat, email: demand[w].vol.email }, q)
       : demand[w]
     const phase = phaseOf(w, freezeStart, freezeEnd)
     const headsAtStart = H

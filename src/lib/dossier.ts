@@ -7,6 +7,7 @@ import { run } from './engine'
 import { EQUATIONS } from './equations'
 import { scoreToGrade } from './grade'
 import { kpis } from './kpis'
+import { PATH_META, QUESTIONS, STATUS_LABEL } from './questions'
 import { toHash } from './share'
 import type { Inputs, RunResult, WeekTrace } from './types'
 import { codeUrl, COMMIT, ENGINE_VERSION, REPO, SHORT } from './version'
@@ -84,13 +85,36 @@ function assumptions(i: Inputs): string {
   if (i.uncertainty.enabled) {
     const u = i.uncertainty
     groups.push(['Uncertainty (Monte Carlo)', [
-      ['Futures / seed', `${u.draws} / ${u.seed}`, 'Simulated futures; random seed'],
-      ['Freeze length (weeks)', u.freezeLength.join(' · '), 'PERT low · likely · high'],
-      ['Tension × / post ×', `${u.tensionMult.join(' · ')} / ${u.postMult.join(' · ')}`, 'PERT ranges'],
-      ['Surge / runoff', `${u.surgePts.join(' · ')} / ${u.runoffPctWeek.join(' · ')}`, 'PERT ranges (fractions)'],
+      ['Futures / seed', `${u.draws} / ${u.seed}`, 'Simulated futures; random seed. Every register entry with a range is drawn (see Assumption register)'],
     ]])
   }
   return groups.map(([g, rows]) => [`### ${g}`, '', '| Input | Value | Meaning |', '|---|---|---|', ...rows.map((r) => row(r)), ''].join('\n')).join('\n')
+}
+
+const fmtV = (path: string, x: number) => (PATH_META[path]?.unit === 'pct' ? pct(x, 1) : Number(x.toPrecision(4)).toLocaleString('en-US'))
+
+function registerSection(i: Inputs): string {
+  const qs = [...i.projectQuestions.map((q) => ({ ...q, group: 'Project' })), ...QUESTIONS]
+  const lines = ['| Question | Input | Low · likely · high | Status | Owner / note |', '|---|---|---|---|---|']
+  const open: string[] = []
+  for (const q of qs)
+    for (const path of q.sets) {
+      const a = i.assumptions[path]
+      if (!a) continue
+      const range = a.range ? a.range.map((x) => fmtV(path, x)).join(' · ') : '—'
+      lines.push(row([`${q.id}: ${q.text}`, PATH_META[path]?.label ?? path, range, STATUS_LABEL[a.status], [a.owner, a.note].filter(Boolean).join(' — ')]))
+      if (a.status === 'default' && !open.includes(`${q.id}: ${q.text}`)) open.push(`${q.id}: ${q.text}`)
+    }
+  return [
+    'Each uncertain input carries a range and a status. Not asked = a generic range; estimated = someone gave a range; confirmed = signed off. The on-screen scenario uses the likely values; with uncertainty on, every range is drawn.',
+    '',
+    ...lines,
+    '',
+    '**Open questions** (still on generic ranges; answering them narrows the forecast):',
+    '',
+    ...(open.length ? open.map((q) => `- ${q}`) : ['- none']),
+    '',
+  ].join('\n')
 }
 
 function workedExample(i: Inputs, t: WeekTrace): string {
@@ -222,6 +246,9 @@ export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat
     '## 3. Assumptions',
     '',
     assumptions(inputs),
+    '### Assumption register',
+    '',
+    registerSection(inputs),
     '## 4. Approach',
     '',
     'A weekly simulation of one blended team. Each week: work arrives (after runoff, step-downs, intake and any migration waves); the team shrinks through waves, attrition and releases (and is backfilled only before the freeze); productive hours are reduced by shrinkage, the absence surge and training; the balancing policy shares those hours between voice and chat (queues in three intraday buckets, sized with Erlang C) and email (a backlog); service (Erlang A with abandonment, or Erlang C), abandonment, required and available FTE and a grade are computed. The equations below are exactly what the engine runs.',

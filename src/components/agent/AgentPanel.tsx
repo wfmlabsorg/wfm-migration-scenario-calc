@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AgentError, ask, type ToolEvent } from '../../agent/loop'
 import { AgentTools } from '../../agent/tools'
 import { download } from '../../lib/csv'
-import { chatToMarkdown, type ChatEntry, type ChatPart } from '../../lib/exportChat'
+import { dossier, type ChatEntry, type ChatPart } from '../../lib/dossier'
 import type { McBands } from '../../lib/montecarlo'
 import type { Inputs, RunResult } from '../../lib/types'
 import Markdown from './Markdown'
@@ -139,7 +139,7 @@ export default function AgentPanel({ open, onClose, inputs, result, onApply }: P
         <div className="flex items-center gap-2">
           {chat.length > 0 && (
             <>
-              <button title="Export this conversation with its scenario" onClick={() => download('analyst-conversation.md', chatToMarkdown(chat, inputs, result, location.href))} className="text-[11px] text-gray-400 hover:text-brand-400">Export</button>
+              <button title="Export the scenario dossier, including this conversation" onClick={() => download('scenario-dossier.md', dossier(inputs, result, location.href, chat))} className="text-[11px] text-gray-400 hover:text-brand-400">Export</button>
               <button onClick={reset} className="text-[11px] text-gray-400 hover:text-brand-400">New</button>
             </>
           )}

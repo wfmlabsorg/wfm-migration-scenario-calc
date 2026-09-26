@@ -105,6 +105,22 @@ describe('tools', () => {
     await expect(h.tools.execute('explain_week', { label: 'x', week: 999 })).rejects.toThrow(/week must be/)
     await expect(h.tools.execute('explain_week', { label: 'nope', week: 1 })).rejects.toThrow(/No scenario/)
   })
+  test('run_scenario can switch the balancing policy, and rejects invalid ones', async () => {
+    const h = host()
+    const pr = JSON.parse(await h.tools.execute('run_scenario', { label: 'pr', changes: [], waves: [], step_downs: [], balance: [] }))
+    const fl = JSON.parse(await h.tools.execute('run_scenario', { label: 'fl', changes: [], waves: [], step_downs: [], balance: [{ mode: 'floor', order: ['voice', 'chat', 'email'], email_floor: 0.9 }] }))
+    expect(fl.results.worstEmailBacklogDays).toBeLessThan(pr.results.worstEmailBacklogDays)
+    expect(h.inputs.balance.mode).toBe('priority') // the screen is untouched
+    await expect(h.tools.execute('run_scenario', { label: 'x', changes: [], waves: [], step_downs: [], balance: [{ mode: 'fair', order: ['voice', 'chat', 'email'], email_floor: 0.5 }] })).rejects.toThrow(/mode/)
+    await expect(h.tools.execute('run_scenario', { label: 'x', changes: [], waves: [], step_downs: [], balance: [{ mode: 'priority', order: ['voice', 'voice', 'email'], email_floor: 0.5 }] })).rejects.toThrow(/order/)
+    const sw = JSON.parse(await h.tools.execute('sweep', { label: 'fl', path: 'balance.emailFloor', values: [0.5, 0.9] }))
+    expect(sw.rows).toHaveLength(2)
+  })
+  test('the system prompt carries the equations verbatim', async () => {
+    const { SYSTEM_PROMPT } = await import('../src/agent/systemPrompt')
+    const { EQUATIONS } = await import('../src/lib/equations')
+    expect(SYSTEM_PROMPT).toContain(EQUATIONS)
+  })
   test('sweep, compare, monte carlo and apply', async () => {
     const h = host()
     const sw = JSON.parse(await h.tools.execute('sweep', { label: '', path: 'borrowed.fte', values: [0, 20, 30] }))

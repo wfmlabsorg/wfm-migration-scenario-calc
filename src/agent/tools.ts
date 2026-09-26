@@ -66,10 +66,12 @@ export class AgentTools {
         if (!label) throw new Error('label must be a non-empty string')
         const waves = input.waves as { weeksAfterFreeze: number; pct: number }[]
         const stepDowns = input.step_downs as { week: number; pct: number }[]
+        const balance = input.balance as { mode: string; order: string[]; email_floor: number }[] | undefined
         const inputs = applyChanges(this.host.getInputs(), {
           changes: (input.changes as Change[]) ?? [],
           waves: waves?.length ? waves : undefined,
           stepDowns: stepDowns?.length ? stepDowns : undefined,
+          balance: balance?.length ? { mode: balance[0].mode, order: balance[0].order, emailFloor: balance[0].email_floor } : undefined,
         })
         const result = run(inputs)
         this.runs.set(label, { inputs, result })

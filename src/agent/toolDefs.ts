@@ -35,6 +35,20 @@ const stepDownsSchema = {
     additionalProperties: false,
   },
 }
+const balanceSchema = {
+  type: 'array',
+  description: 'Replacement channel-balancing policy: 0 or 1 item. mode: priority (order matters; last absorbs the shortfall), floor (email_floor share of email arrivals guaranteed first, then order without email), prorata (every channel the same fraction of its need), equal (every channel the same attainment). order: voice, chat and email once each. Empty = keep the current policy.',
+  items: {
+    type: 'object',
+    properties: {
+      mode: { type: 'string', enum: ['priority', 'floor', 'prorata', 'equal'] },
+      order: { type: 'array', items: { type: 'string', enum: ['voice', 'chat', 'email'] } },
+      email_floor: { type: 'number' },
+    },
+    required: ['mode', 'order', 'email_floor'],
+    additionalProperties: false,
+  },
+}
 const labelProp = { type: 'string', description: 'Scenario label. Empty string = the scenario currently on screen.' }
 
 export const TOOL_DEFS = [
@@ -50,8 +64,8 @@ export const TOOL_DEFS = [
     strict: true,
     input_schema: {
       type: 'object',
-      properties: { label: { type: 'string', description: 'Short unique label, e.g. "borrow15".' }, changes: changesSchema, waves: wavesSchema, step_downs: stepDownsSchema },
-      required: ['label', 'changes', 'waves', 'step_downs'],
+      properties: { label: { type: 'string', description: 'Short unique label, e.g. "borrow15".' }, changes: changesSchema, waves: wavesSchema, step_downs: stepDownsSchema, balance: balanceSchema },
+      required: ['label', 'changes', 'waves', 'step_downs', 'balance'],
       additionalProperties: false,
     },
   },

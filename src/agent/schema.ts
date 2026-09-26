@@ -1,5 +1,5 @@
 // The only inputs the analyst may change, with ranges. Anything else is refused.
-import type { Inputs, StepDown, Wave } from '../lib/types'
+import type { Balance, BalanceMode, Channel, Inputs, StepDown, Wave } from '../lib/types'
 
 export interface PathSpec {
   path: string
@@ -46,6 +46,7 @@ export const PATHS: PathSpec[] = [
   { path: 'after.releasesOn', min: 0, max: 1, boolean: true, describe: 'Release surplus staff after notice (1 yes, 0 no)' },
   { path: 'after.noticeWeeks', min: 0, max: 26, integer: true, describe: 'Notice weeks before releases' },
   { path: 'after.releaseBuffer', min: 0, max: 0.5, describe: 'Headroom kept above need when releasing' },
+  { path: 'balance.emailFloor', min: 0, max: 1, describe: 'Protect-email policy: share of email arrivals guaranteed first (0–1)' },
   { path: 'borrowed.fte', min: 0, max: 2000, describe: 'Borrowed FTE from another site' },
   { path: 'borrowed.startWeek', min: 0, max: 77, integer: true, describe: 'First week borrowed staff help' },
   { path: 'borrowed.endWeek', min: 0, max: 77, integer: true, describe: 'Last week borrowed staff help' },
@@ -66,6 +67,7 @@ export interface Changes {
   changes?: Change[]
   waves?: Wave[] // replaces all waves when present
   stepDowns?: StepDown[] // replaces all step-downs when present
+  balance?: { mode: string; order: string[]; emailFloor: number } // replaces the balancing policy when present
 }
 
 /** Validates and applies changes to a copy of the inputs. Throws with a readable message on anything invalid. */
@@ -98,6 +100,16 @@ export function applyChanges(base: Inputs, c: Changes): Inputs {
       if (!(s.pct >= 0 && s.pct <= 1)) throw new Error('Step-down pct must be 0–1')
     }
     next.demand.stepDowns = c.stepDowns.map((s) => ({ week: s.week, pct: s.pct }))
+  }
+  if (c.balance) {
+    const modes: BalanceMode[] = ['priority', 'floor', 'prorata', 'equal']
+    const chans: Channel[] = ['voice', 'chat', 'email']
+    if (!modes.includes(c.balance.mode as BalanceMode)) throw new Error(`balance mode must be one of ${modes.join(', ')}`)
+    const o = c.balance.order
+    if (!Array.isArray(o) || o.length !== 3 || new Set(o).size !== 3 || !o.every((x) => chans.includes(x as Channel)))
+      throw new Error('balance order must list voice, chat and email once each')
+    if (!(c.balance.emailFloor >= 0 && c.balance.emailFloor <= 1)) throw new Error('balance email_floor must be 0–1')
+    next.balance = { mode: c.balance.mode as BalanceMode, order: o as Channel[], emailFloor: c.balance.emailFloor } satisfies Balance
   }
   return next
 }

@@ -49,6 +49,31 @@ Every tool call appears as an expandable step, so the maths is visible. A conver
 
 **Self-hosting:** set `ANTHROPIC_API_KEY` as a secret, functions-scoped environment variable on your Netlify site. Keys never belong in the repo, and anything not prefixed `VITE_` is never bundled into the page. `tests/export.test.ts` fails the build if key material appears in the source or build output.
 
+## Channel balancing
+
+Choose who absorbs a shortfall:
+- strict priority (reorderable)
+- protect email with a guaranteed floor
+- share the shortfall pro rata
+- equal attainment
+
+See `docs/METHOD.md` for why spreading a shortfall across Erlang queues usually hurts every channel.
+
+## Scenario dossier
+
+**Export scenario** downloads one Markdown file with everything needed to understand, check or rebuild the scenario:
+- provenance (engine version, commit and a scenario link)
+- instructions for Claude
+- headline results
+- every assumption with its meaning
+- the approach and the complete equations
+- a worked example of the worst week, with the engine's own numbers substituted
+- the weekly results
+- any analyst conversation
+- the inputs as JSON
+
+Paste it into Claude Desktop to analyse or recreate the scenario.
+
 ## Versioned links
 
 Share links and exports record the engine commit (`&v=<sha>`). The footer links to the exact code on GitHub, and a link made with a different commit shows a notice with a link to that version's source.
@@ -70,7 +95,7 @@ Background reading on the WFM Labs wiki:
 ```bash
 bun install
 bun run dev      # local development
-bun test         # 59 tests: Erlang reference values, invariants, priority, Monte Carlo,
+bun test         # 105 tests: Erlang reference values, invariants, priority, Monte Carlo,
                  # analyst tools, relay rules, quotas, export, no-secrets guard
 bun run build    # production build to dist/
 ```

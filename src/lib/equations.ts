@@ -19,6 +19,11 @@ Weeks w = 0 … W−1. Channels: voice (V), chat (C), email (E). Intraday bucket
 - Service level: SL(N) = 1 − C(N)·exp(−(N − A)·T ÷ AHT) for N > A, else 0 (T = answer threshold).
 - Fractional agents: SL(n) = (1 − f)·SL(⌊n⌋) + f·SL(⌊n⌋+1), f = n − ⌊n⌋.
 - Agents needed at target t: need(t) = smallest fractional n with SL(n) = t, found in one upward pass of the recursion and interpolated linearly between integers. need(0) = ⌊A⌋.
+- Erlang A (M/M/N+M; waiting customers give up after an exponential patience with mean APT). With h = AHT ÷ APT and τ = T ÷ AHT: q_0 = 1, q_k = q_{k−1} × A ÷ (N + k·h) (k waiting); Z = 1/B(N) − 1 + Σ_k q_k.
+  - P(wait) = Σ q_k ÷ Z. Abandon rate P(ab) = Σ q_k × (k+1)h ÷ (N + (k+1)h) ÷ Z.
+  - Service level = answered within T ÷ ALL offered (abandoners count as misses): SL_A(N) = [ (1/B − 1) + Σ q_k × N ÷ (N + (k+1)h) × (1 − F_k) ] ÷ Z, where F_k is the negative-binomial CDF with t_0 = e^{−(N+h)τ}, t_j = t_{j−1} × x × (b + j − 1) ÷ j, x = 1 − e^{−hτ}, b = N/h + 1.
+  - Fractional agents interpolate as above; need_A(t) is found by bisection and can be below A (callers who give up relieve the queue). need_A(0) = 0. Very patient customers (h → 0) reproduce Erlang C.
+- Service model: required FTE is always sized with Erlang C (need(t)). Under Erlang A, allocation targets and delivered service use need_A and SL_A; under Erlang C they use need and SL.
 - Email work: arrival hours E_w = vol_E × AHT_E ÷ 3600.
 
 ### 3. Supply (in this order each week)
@@ -40,13 +45,15 @@ Capacity per bucket in agents: team a_b = P × α_b ÷ H_b and borrowed β_b = B
 - Capacity identity: P + B = voice + chat hours given + email worked + borrowed idle + team idle.
 
 ### 5. Service measures
-- Voice/chat service level = Σ_b vs_b × SL(agents given_b). Channels whose volume is below 10% of baseline are not scored.
+- Voice/chat service level = Σ_b vs_b × SL(agents given_b), with SL from the service model. Channels whose volume is below 10% of baseline are not scored.
+- Abandonment (Erlang A only; 0 under C): rate = Σ_b vs_b × P(ab)(agents given_b); abandoned = volume × rate.
+- Retries (Erlang A): forecast volumes already contain today's redials, so only abandonment above the week-0 rate r_0 creates extra contacts: retries_{w+1} = redialRate × max(0, abandoned_w − r_0 × vol_w) × min(1, forecast vol_{w+1} ÷ forecast vol_w). They are added to next week's volume and all of that week's loads, needs and required FTE are recomputed.
 - Email: backlog out = D − worked; backlog days = backlog out ÷ (E_w ÷ 5); on-time index = min(1, targetDays ÷ backlog days).
 - Required FTE = max(peak-bucket need, total need) ÷ (p × (1 − s)), where peak-bucket need = max_b (need_V,b + need_C,b) × H_b ÷ α_b and total need = Σ_b (need_V,b + need_C,b) × H_b + E_w + excess backlog ÷ 4.
 - Available FTE = (P + borrowed hours used) ÷ (p × (1 − s)). Utilisation = (interactive need hours + E_w) ÷ (P + borrowed used).
 
 ### 6. Grade (AAA to D-)
-Attainment: voice/chat = SL ÷ target; email = on-time index. If every scored channel meets target: score = 0.70 + 0.30 × min(1, (cover − 1) ÷ 0.10), cover = available ÷ required FTE. Otherwise score = 0.70 × clamp((worst attainment − 0.5) ÷ 0.5, 0, 1). An unstable queue (agents ≤ load) scores 0.05. Bands: AAA ≥ 0.90, AA ≥ 0.80, A ≥ 0.70, BBB ≥ 0.60, BB ≥ 0.50, B ≥ 0.40, CCC ≥ 0.30, CC ≥ 0.20, D ≥ 0.10, D- below. Weeks with no work left are not graded.
+Attainment: voice/chat = SL ÷ target; email = on-time index. If every scored channel meets target: score = 0.70 + 0.30 × min(1, (cover − 1) ÷ 0.10), cover = available ÷ required FTE. Otherwise score = 0.70 × clamp((worst attainment − 0.5) ÷ 0.5, 0, 1). An unstable Erlang C queue (agents ≤ load) scores 0.05; under Erlang A queues are always stable. Abandonment cap (Erlang A): if the worst scored voice/chat abandon rate exceeds abandonCap, score = min(score, 0.69) (BBB at best); above 2 × abandonCap, min(score, 0.39) (CCC at best). Bands: AAA ≥ 0.90, AA ≥ 0.80, A ≥ 0.70, BBB ≥ 0.60, BB ≥ 0.50, B ≥ 0.40, CCC ≥ 0.30, CC ≥ 0.20, D ≥ 0.10, D- below. Weeks with no work left are not graded.
 
 ### 7. Uncertainty (optional)
-Each simulated future draws freeze length, tensionMult, postMult, surgePts and runoff from PERT(low, most likely, high) and attrition binomially, with a seeded generator (the same futures for every scenario). Reported: 10th/50th/90th percentiles per week and the share of futures in which no graded week misses a target (graded on the same scale). The balancing policy is not varied.`
+Each simulated future draws freeze length, tensionMult, postMult, surgePts and runoff from PERT(low, most likely, high) and attrition binomially, with a seeded generator (the same futures for every scenario). Reported: 10th/50th/90th percentiles per week and the share of futures in which no graded week misses a target (graded on the same scale). The balancing policy and the service model's patience are not varied.`

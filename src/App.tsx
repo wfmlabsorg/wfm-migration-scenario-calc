@@ -4,6 +4,7 @@ import { CapacityChart, ServiceChart } from './components/charts/Charts'
 import NumberInput from './components/inputs/NumberInput'
 import SliderInput from './components/inputs/SliderInput'
 import BalanceCard from './components/inputs/BalanceCard'
+import ServiceModelCard from './components/inputs/ServiceModelCard'
 import ResultCard from './components/results/ResultCard'
 import { download, toCsv } from './lib/csv'
 import { dossier } from './lib/dossier'
@@ -69,6 +70,7 @@ function summarise(r: RunResult & { targets: { voice: number; chat: number } }) 
   const gapWeek = r.weeks.reduce((a, w) => (w.fteReq - w.fteAvail > a.fteReq - a.fteAvail ? w : a), r.weeks[0])
   const backlog = Math.max(0, ...r.weeks.map((w) => w.email.backlogDays))
   const idle = r.weeks.reduce((s, w) => s + w.borrowedIdleHours, 0)
+  const peakAb = (k: 'voice' | 'chat') => Math.max(0, ...r.weeks.map((w) => (w[k].scored && Number.isFinite(w[k].abandonRate) ? w[k].abandonRate : 0)))
   const worstChannel = !worst
     ? ''
     : [
@@ -76,13 +78,14 @@ function summarise(r: RunResult & { targets: { voice: number; chat: number } }) 
         worst.chat.scored ? { k: `Chat ${pct(worst.chat.sl)}`, a: worst.chat.sl / r.targets.chat } : null,
         worst.email.scored ? { k: `Email ${pct(worst.email.timeliness)} on time`, a: worst.email.timeliness } : null,
       ].filter((x): x is { k: string; a: number } => !!x).sort((x, y) => x.a - y.a)[0]?.k ?? ''
-  return { worst, emailLate, util, gapWeek, backlog, idle, below, worstChannel }
+  return { worst, emailLate, util, gapWeek, backlog, idle, below, worstChannel, abVoice: peakAb('voice'), abChat: peakAb('chat') }
 }
 
 export default function App() {
   const [inputs, setInputs] = useState<Inputs>(() => decode(window.location.hash) ?? cloneDefaults())
   const [saved, setSaved] = useState<Inputs | null>(null)
   const [showCompare, setShowCompare] = useState(true)
+  const [showC, setShowC] = useState(false)
   const [bands, setBands] = useState<McBands | null>(null)
   const [mcState, setMcState] = useState<'idle' | 'running' | 'partial' | 'done'>('idle')
   const [showInfo, setShowInfo] = useState(false)
@@ -109,6 +112,7 @@ export default function App() {
 
   const result = useMemo(() => run(inputs), [inputs])
   const compare = useMemo(() => (saved && showCompare ? run(saved) : null), [saved, showCompare])
+  const erlangC = useMemo(() => (showC && inputs.service.model === 'A' ? run({ ...inputs, service: { ...inputs.service, model: 'C' } }) : null), [inputs, showC])
   const s = useMemo(() => summarise({ ...result, targets: { voice: inputs.channels.voice.slTarget, chat: inputs.channels.chat.slTarget } }), [result, inputs.channels.voice.slTarget, inputs.channels.chat.slTarget])
 
   // keep the URL in step with the scenario (debounced)
@@ -283,6 +287,10 @@ export default function App() {
               )}
             </Card>
 
+            <Card title="Service model">
+              <ServiceModelCard value={inputs.service} onChange={(v) => set((i) => { i.service = v })} showC={showC} onShowC={setShowC} />
+            </Card>
+
             <Card title="Channel balancing">
               <BalanceCard value={inputs.balance} onChange={(v) => set((i) => { i.balance = v })} />
             </Card>
@@ -347,10 +355,17 @@ export default function App() {
                   <p className="text-[10px] text-gray-400 uppercase tracking-wider">Worst week · W{s.worst.week}</p>
                   <p className="text-3xl font-bold" style={{ color: worstGrade.color }}>{worstGrade.grade}</p>
                   <p className="text-[10px] text-gray-400">{worstGrade.rating} · {s.worstChannel}</p>
+                  {s.worst?.cappedByAbandonment && (
+                    <p className="text-[10px] text-amber-300">Capped by abandonment</p>
+                  )}
                 </div>
               )}
               <ResultCard label="Weeks below target" sublabel="Voice · Chat · Email" value={`${s.below('voice', ch.voice.slTarget)} · ${s.below('chat', ch.chat.slTarget)} · ${s.emailLate}`} />
-              <ResultCard label="Peak utilisation" sublabel="Work offered ÷ capacity" value={pct(s.util)} accent={s.util > 1} />
+              {inputs.service.model === 'A' ? (
+                <ResultCard label="Peak abandonment" sublabel={`Voice · Chat · util ${pct(s.util)}`} value={`${pct(s.abVoice, 1)} · ${pct(s.abChat, 1)}`} accent={Math.max(s.abVoice, s.abChat) > inputs.service.abandonCap} />
+              ) : (
+                <ResultCard label="Peak utilisation" sublabel="Work offered ÷ capacity" value={pct(s.util)} accent={s.util > 1} />
+              )}
               <ResultCard label="Largest FTE gap" sublabel={`Week ${s.gapWeek.week}`} value={f1(Math.max(0, s.gapWeek.fteReq - s.gapWeek.fteAvail))} />
               <ResultCard label="Worst email backlog" sublabel={`Target ${ch.email.targetDays} day(s)`} value={`${f1(s.backlog)} d`} />
               {bands ? (
@@ -370,7 +385,7 @@ export default function App() {
                 </span>
               }
             >
-              <ServiceChart result={result} compare={compare} bands={bands} targets={{ voice: ch.voice.slTarget, chat: ch.chat.slTarget }} />
+              <ServiceChart result={result} compare={compare} erlangC={erlangC} bands={bands} targets={{ voice: ch.voice.slTarget, chat: ch.chat.slTarget }} />
             </Card>
 
             <Card title="Capacity by week">
@@ -400,7 +415,7 @@ export default function App() {
                   <table className="w-full text-[11px] font-mono">
                     <thead className="text-gray-400">
                       <tr className="text-right">
-                        {['Wk', 'Phase', 'Heads', 'Avail', 'Req', 'Voice', 'Chat', 'Email', 'Backlog d', 'Util', 'Grade'].map((h) => <th key={h} className="px-2 py-1 font-medium">{h}</th>)}
+                        {['Wk', 'Phase', 'Heads', 'Avail', 'Req', 'Voice', 'V ab', 'Chat', 'C ab', 'Email', 'Backlog d', 'Util', 'Grade'].map((h) => <th key={h} className="px-2 py-1 font-medium">{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
@@ -414,7 +429,9 @@ export default function App() {
                             <td className="px-2 py-0.5">{f1(w.fteAvail)}</td>
                             <td className="px-2 py-0.5">{f1(w.fteReq)}</td>
                             <td className="px-2 py-0.5">{pct(w.voice.sl)}</td>
+                            <td className="px-2 py-0.5 text-gray-500">{pct(w.voice.abandonRate, 1)}</td>
                             <td className="px-2 py-0.5">{pct(w.chat.sl)}</td>
+                            <td className="px-2 py-0.5 text-gray-500">{pct(w.chat.abandonRate, 1)}</td>
                             <td className="px-2 py-0.5">{pct(w.email.timeliness)}</td>
                             <td className="px-2 py-0.5">{w.email.backlogDays.toFixed(2)}</td>
                             <td className="px-2 py-0.5">{pct(w.utilisation)}</td>
@@ -450,7 +467,8 @@ export default function App() {
               <li><b>Freeze.</b> No work moves and leavers are not replaced. Attrition runs at the base rate times the tension effect.</li>
               <li><b>Demand.</b> The existing book runs off each week and at any step-downs; new demand can replace it if intake is on.</li>
               <li><b>After the freeze.</b> Attrition rises again, absence surges for a period, and staff due to move lose productive hours to training in the weeks before their wave. Each wave moves its share of the work, its email backlog and the same share of staff.</li>
-              <li><b>Service.</b> Each week, Voice gets the agents it needs first (Erlang C across a peak, shoulder and off-peak profile), then Chat (Erlang C with concurrency), and Email is worked from what is left, carrying a backlog. Spare time returns to Voice and Chat.</li>
+              <li><b>Service.</b> Each week the balancing policy shares the team between Voice and Chat (queues across a peak, shoulder and off-peak profile; chat with concurrency) and Email, which carries a backlog. Spare time returns to Voice and Chat.</li>
+              <li><b>Service model.</b> Erlang A (default) lets waiting customers give up after an average patience: service level counts them as misses, abandonment is reported, and a share of the extra abandoners redial the next week. Erlang C assumes nobody hangs up. Required FTE is sized with Erlang C either way.</li>
               <li><b>Borrowed capacity</b> helps only the channels it is eligible for, and is slower by its AHT multiplier.</li>
               <li><b>Uncertainty.</b> With bands on, the freeze length, the attrition effects, the absence surge and the runoff are drawn from their ranges thousands of times (seeded, so comparisons are fair). The line always shows the most-likely inputs.</li>
             </ul>
@@ -466,7 +484,7 @@ export default function App() {
                 ))}
               </tbody>
             </table>
-            <p className="text-[13px]"><b>Limits.</b> Erlang C assumes nobody abandons, so under overload service is shown near zero where in reality callers hang up; read utilisation alongside it. Weeks where a channel has almost no work left are not graded. The figures are illustrations of the inputs you give, not forecasts.</p>
+            <p className="text-[13px]"><b>Limits.</b> Under Erlang C nobody abandons, so under overload service is shown near zero where in reality callers hang up. Under Erlang A, patience is a single average you should replace with your own, and a week with heavy abandonment grades BBB at best (CCC above twice the cap). Weeks where a channel has almost no work left are not graded. The figures are illustrations of the inputs you give, not forecasts.</p>
             <p className="text-[13px]">Method and background: <a className="text-brand-400 hover:underline" href={WIKI_ARTICLE} target="_blank" rel="noreferrer">Service Level During Work Migration</a> · <a className="text-brand-400 hover:underline" href={WIKI_PACK} target="_blank" rel="noreferrer">Migration Service-Level Simulation pack</a></p>
           </div>
         </div>

@@ -10,6 +10,9 @@ export interface Kpis {
   peakUtilisation: number
   largestFteGap: { week: number; fte: number }
   worstEmailBacklogDays: number
+  peakAbandonment: { voice: { rate: number; week: number }; chat: { rate: number; week: number } } // 0 under Erlang C
+  totalAbandoned: { voice: number; chat: number }
+  gradeCappedByAbandonment: boolean // the worst week's grade was capped by abandonment
   idleBorrowedHours: number
   freezeStart: number
   freezeEnd: number
@@ -32,6 +35,9 @@ export function kpis(inp: Inputs, r: RunResult): Kpis {
     ].filter((x): x is { k: string; a: number } => !!x)
     worstChannel = c.sort((x, y) => x.a - y.a)[0]?.k ?? ''
   }
+  const peak = (ch: 'voice' | 'chat') =>
+    r.weeks.reduce((a, w) => (w[ch].scored && w[ch].abandonRate > a.rate ? { rate: w[ch].abandonRate, week: w.week } : a), { rate: 0, week: 0 })
+  const capped = !!worst && worst.cappedByAbandonment
   const gap = r.weeks.reduce((a, w) => (w.fteReq - w.fteAvail > a.fteReq - a.fteAvail ? w : a), r.weeks[0])
   return {
     worstWeek: worst?.week ?? null,
@@ -45,6 +51,9 @@ export function kpis(inp: Inputs, r: RunResult): Kpis {
     peakUtilisation: Math.max(0, ...r.weeks.map((w) => (Number.isFinite(w.utilisation) ? w.utilisation : 0))),
     largestFteGap: { week: gap.week, fte: Math.max(0, gap.fteReq - gap.fteAvail) },
     worstEmailBacklogDays: Math.max(0, ...r.weeks.map((w) => w.email.backlogDays)),
+    peakAbandonment: { voice: peak('voice'), chat: peak('chat') },
+    totalAbandoned: { voice: r.weeks.reduce((s, w) => s + w.voice.abandoned, 0), chat: r.weeks.reduce((s, w) => s + w.chat.abandoned, 0) },
+    gradeCappedByAbandonment: capped,
     idleBorrowedHours: r.weeks.reduce((s, w) => s + w.borrowedIdleHours, 0),
     freezeStart: r.freezeStart,
     freezeEnd: r.freezeEnd,

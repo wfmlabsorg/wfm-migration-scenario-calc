@@ -70,12 +70,20 @@ describe('change validation', () => {
   })
   test('every allowed path exists in the inputs and every tool enum matches', () => {
     for (const p of PATHS) {
+      if (p.path === 'service.useErlangA') continue // virtual: sets service.model
       const v = p.path.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown>)?.[k], DEFAULTS)
       expect(v === undefined).toBe(false)
     }
     const run_ = TOOL_DEFS.find((t) => t.name === 'run_scenario')!
     const e = (run_.input_schema.properties.changes as { items: { properties: { path: { enum: string[] } } } }).items.properties.path.enum
     expect(e).toEqual(PATHS.map((p) => p.path))
+  })
+  test('service.useErlangA switches the model; patience and redial are set in place', () => {
+    const c = applyChanges(DEFAULTS, { changes: [{ path: 'service.useErlangA', value: 0 }, { path: 'service.patience.voice', value: 60 }, { path: 'service.redialRate', value: 0.2 }] })
+    expect(c.service.model).toBe('C')
+    expect(c.service.patience.voice).toBe(60)
+    expect(c.service.redialRate).toBe(0.2)
+    expect(applyChanges(c, { changes: [{ path: 'service.useErlangA', value: 1 }] }).service.model).toBe('A')
   })
   test('tool schemas are strict-shaped', () => {
     for (const t of TOOL_DEFS) {

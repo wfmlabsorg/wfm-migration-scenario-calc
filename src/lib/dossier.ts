@@ -64,6 +64,14 @@ function assumptions(i: Inputs): string {
       ['Borrowed', i.borrowed.fte > 0 ? `${i.borrowed.fte} FTE, weeks ${i.borrowed.startWeek}–${i.borrowed.endWeek}` : 'none', 'Staff lent from elsewhere'],
       ['AHT penalty / eligible', `× ${i.borrowed.ahtPenalty} / ${Object.entries(i.borrowed.eligible).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`, 'Slower on unfamiliar work; channels they can take'],
     ]],
+    ['Service model', i.service.model === 'A' ? [
+      ['Model', 'Erlang A (customers abandon)', 'Delivered service, abandonment and allocation targets; required FTE is still sized with Erlang C'],
+      ['Patience (voice / chat)', `${i.service.patience.voice} s / ${i.service.patience.chat} s`, 'Mean time a waiting customer stays before giving up (estimate)'],
+      ['Redial rate', pct(i.service.redialRate), 'Share of extra abandoners who try again next week (estimate)'],
+      ['Abandonment cap', pct(i.service.abandonCap), 'Worst voice/chat abandonment above this caps the week at BBB; above twice it at CCC'],
+    ] : [
+      ['Model', 'Erlang C (nobody abandons)', 'Delivered service and sizing both use Erlang C; overloaded queues read near zero'],
+    ]],
     ['Channel balancing', [
       ['Policy', i.balance.mode === 'priority' ? `strict priority: ${i.balance.order.join(' → ')}` : i.balance.mode === 'floor' ? `protect email (${pct(i.balance.emailFloor)} of arrivals first), then ${i.balance.order.filter((x) => x !== 'email').join(' → ')}` : i.balance.mode === 'prorata' ? 'share the shortfall (pro rata)' : 'equal attainment', 'Who absorbs a shortfall (see equations, section 4)'],
     ]],
@@ -107,10 +115,12 @@ function workedExample(i: Inputs, t: WeekTrace): string {
     '',
     `**3. Allocation: ${pol.mode === 'priority' ? `strict priority ${pol.order.join(' → ')}` : pol.mode === 'floor' ? `protect email (${pct(pol.emailFloor)})` : pol.mode === 'prorata' ? `share the shortfall, r = ${n(pol.ratio ?? 1, 4)}` : `equal attainment, a = ${n(pol.attainment ?? 1, 4)}${pol.fellBackToProrata ? ' (fell back to pro rata)' : ''}`}**`,
     '',
-    '| Bucket | Open h | Alloc share | Voice load (Erl) | need | target | given | final | SL | Chat load (Erl) | need | target | given | final | SL |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
-    ...t.buckets.map((b) => row([b.name, n(b.openHours, 1), pct(b.allocShare, 1), n(b.voice.offeredErlangs, 2), n(b.voice.needAgents, 2), n(b.voice.targetAgents, 2), n(b.voice.agentsBeforeSpare, 2), n(b.voice.agentsFinal, 2), pct(b.voice.serviceLevel, 1), n(b.chat.offeredErlangs, 2), n(b.chat.needAgents, 2), n(b.chat.targetAgents, 2), n(b.chat.agentsBeforeSpare, 2), n(b.chat.agentsFinal, 2), pct(b.chat.serviceLevel, 1)])),
+    '| Bucket | Open h | Alloc share | Voice load (Erl) | need | target | given | final | SL | abandon | Chat load (Erl) | need | target | given | final | SL | abandon |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+    ...t.buckets.map((b) => row([b.name, n(b.openHours, 1), pct(b.allocShare, 1), n(b.voice.offeredErlangs, 2), n(b.voice.needAgents, 2), n(b.voice.targetAgents, 2), n(b.voice.agentsBeforeSpare, 2), n(b.voice.agentsFinal, 2), pct(b.voice.serviceLevel, 1), pct(b.voice.abandonRate, 1), n(b.chat.offeredErlangs, 2), n(b.chat.needAgents, 2), n(b.chat.targetAgents, 2), n(b.chat.agentsBeforeSpare, 2), n(b.chat.agentsFinal, 2), pct(b.chat.serviceLevel, 1), pct(b.chat.abandonRate, 1)])),
     '',
+    `Service model: ${t.service.model === 'A' ? `Erlang A (patience ${t.service.patience.voice} s voice, ${t.service.patience.chat} s chat); "need" is the Erlang A need at target, sizing uses Erlang C (voice ${t.buckets.map((b) => n(b.voice.sizingNeedAgents, 2)).join(' / ')}, chat ${t.buckets.map((b) => n(b.chat.sizingNeedAgents, 2)).join(' / ')})` : 'Erlang C'}.`,
+    ...(t.service.model === 'A' ? [`Retries in this week: voice ${n(t.service.retriesIn.voice, 0)}, chat ${n(t.service.retriesIn.chat, 0)}. Abandoned: voice ${n(t.service.abandoned.voice, 0)}, chat ${n(t.service.abandoned.chat, 0)}; carried to next week: voice ${n(t.service.retriesOut.voice, 0)}, chat ${n(t.service.retriesOut.chat, 0)}.`] : []),
     `Service level = Σ volume share × bucket SL: voice ${pct(t.buckets.reduce((s, b) => s + b.volumeShare * b.voice.serviceLevel, 0), 1)}, chat ${pct(t.buckets.reduce((s, b) => s + b.volumeShare * b.chat.serviceLevel, 0), 1)}.`,
     '',
     '**4. Email**',
@@ -123,18 +133,18 @@ function workedExample(i: Inputs, t: WeekTrace): string {
     '',
     '**6. Grade**',
     `- Attainment: voice ${n(g.attainment.voice, 3)}, chat ${n(g.attainment.chat, 3)}, email ${n(g.attainment.email, 3)}; worst ${n(g.worstAttainment, 3)}.`,
-    `- ${g.unstable ? 'A queue is unstable (agents ≤ load): score 0.05.' : g.meetsAll ? `All targets met: score = 0.70 + 0.30 × min(1, (${n(g.cover, 3)} − 1) ÷ 0.10) = ${n(g.score, 3)}.` : `Not all met: score = 0.70 × clamp((${n(Math.min(g.worstAttainment, 1), 3)} − 0.5) ÷ 0.5) = ${n(g.score, 3)}.`} Grade **${Number.isFinite(g.score) ? scoreToGrade(g.score).grade : '—'}**.`,
+    `- ${g.unstable ? 'A queue is unstable (agents ≤ load): score 0.05.' : g.meetsAll ? `All targets met: score = 0.70 + 0.30 × min(1, (${n(g.cover, 3)} − 1) ÷ 0.10) = ${n(g.score, 3)}.` : `Not all met: score = 0.70 × clamp((${n(Math.min(g.worstAttainment, 1), 3)} − 0.5) ÷ 0.5) = ${n(g.score, 3)}.`} ${g.abandonCap < 1 && g.score < g.scoreBeforeCap ? ` Worst abandonment ${pct(g.worstAbandonRate, 1)} exceeds the ${pct(g.abandonCap)} cap${g.worstAbandonRate > 2 * g.abandonCap ? ' twice over' : ''}: score capped at ${n(g.score, 3)}.` : ''} Grade **${Number.isFinite(g.score) ? scoreToGrade(g.score).grade : '—'}**.`,
   ]
   return lines.join('\n')
 }
 
 function weeklyTable(r: RunResult): string {
-  const head = '| Wk | Phase | Heads | FTE avail | FTE req | Voice SL | Chat SL | Email on-time | Backlog d | Util | Grade |'
+  const head = '| Wk | Phase | Heads | FTE avail | FTE req | Voice SL | Voice ab | Chat SL | Chat ab | Email on-time | Backlog d | Util | Grade |'
   const rows = r.weeks.map((w) => row([
-    w.week, w.phase, n(w.heads), n(w.fteAvail), n(w.fteReq), pct(w.voice.sl), pct(w.chat.sl), pct(w.email.timeliness),
+    w.week, w.phase, n(w.heads), n(w.fteAvail), n(w.fteReq), pct(w.voice.sl), pct(w.voice.abandonRate), pct(w.chat.sl), pct(w.chat.abandonRate), pct(w.email.timeliness),
     n(w.email.backlogDays, 2), pct(w.utilisation), Number.isFinite(w.score) ? scoreToGrade(w.score).grade : '—',
   ]))
-  return [head, '|---|---|---|---|---|---|---|---|---|---|---|', ...rows].join('\n')
+  return [head, '|---|---|---|---|---|---|---|---|---|---|---|---|---|', ...rows].join('\n')
 }
 
 function toolSummary(t: ToolEvent): string {
@@ -142,7 +152,7 @@ function toolSummary(t: ToolEvent): string {
   try {
     const j = JSON.parse(t.output) as Record<string, unknown>
     const r = (j.results ?? j) as Record<string, unknown>
-    const keep = ['label', 'worstWeek', 'worstGrade', 'worstChannel', 'weeksBelowTarget', 'peakUtilisation', 'largestFteGap', 'shareOfFuturesWithNoBreach', 'gradeOfThatShare', 'applied']
+    const keep = ['label', 'worstWeek', 'worstGrade', 'worstChannel', 'weeksBelowTarget', 'peakUtilisation', 'largestFteGap', 'peakAbandonment', 'shareOfFuturesWithNoBreach', 'gradeOfThatShare', 'applied']
     const brief = Object.fromEntries(Object.entries({ ...j, ...r }).filter(([k]) => keep.includes(k)))
     result = Object.keys(brief).length ? JSON.stringify(brief) : t.output.slice(0, 600) + (t.output.length > 600 ? ' …' : '')
   } catch {
@@ -177,7 +187,7 @@ When you use it:
 2. Answer questions from the Results, Worked example and Weekly results first; quote weeks and numbers as given.
 3. To check a number, recompute it from the Equations and the Worked example. Numbers should agree to rounding.
 4. If asked to rebuild the model, implement the Equations section exactly (in the order given in section 3, with the allocation policy in section 4), run it on the Inputs JSON, and confirm it reproduces the Weekly results before exploring changes. Report any week that differs.
-5. Keep the model's stated limits in mind: Erlang C assumes nobody abandons (overloaded queues read near zero), clients don't leave because service is poor, and it is one blended team with a fixed balancing policy.
+5. Keep the model's stated limits in mind: under Erlang C nobody abandons (overloaded queues read near zero), under Erlang A patience is one average and only the redial share of abandoners returns, clients don't leave because service is poor, and it is one blended team with a fixed balancing policy.
 6. Results illustrate the inputs; they are not forecasts or advice.`
 
 export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat: ChatEntry[] = [], now = new Date()): string {
@@ -203,6 +213,7 @@ export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat
     row(['Worst week', `${k.worstWeek ?? '—'} (${k.worstGrade}; ${k.worstChannel})`]),
     row(['Weeks below target: voice · chat · email', `${k.weeksBelowTarget.voice} · ${k.weeksBelowTarget.chat} · ${k.weeksBelowTarget.email}`]),
     row(['Peak utilisation', pct(k.peakUtilisation)]),
+    row(['Peak abandonment: voice · chat', inputs.service.model === 'A' ? `${pct(k.peakAbandonment.voice.rate, 1)} (week ${k.peakAbandonment.voice.week}) · ${pct(k.peakAbandonment.chat.rate, 1)} (week ${k.peakAbandonment.chat.week})` : 'n/a (Erlang C: nobody abandons)']),
     row(['Largest FTE gap', `${n(k.largestFteGap.fte)} (week ${k.largestFteGap.week})`]),
     row(['Worst email backlog', `${n(k.worstEmailBacklogDays, 2)} days`]),
     row(['Freeze / waves', `weeks ${k.freezeStart}–${k.freezeEnd} · waves at ${k.waveWeeks.join(', ') || 'none'}`]),
@@ -213,7 +224,7 @@ export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat
     assumptions(inputs),
     '## 4. Approach',
     '',
-    'A weekly simulation of one blended team. Each week: work arrives (after runoff, step-downs, intake and any migration waves); the team shrinks through waves, attrition and releases (and is backfilled only before the freeze); productive hours are reduced by shrinkage, the absence surge and training; the balancing policy shares those hours between voice and chat (queues, sized with Erlang C in three intraday buckets) and email (a backlog); service, required and available FTE and a grade are computed. The equations below are exactly what the engine runs.',
+    'A weekly simulation of one blended team. Each week: work arrives (after runoff, step-downs, intake and any migration waves); the team shrinks through waves, attrition and releases (and is backfilled only before the freeze); productive hours are reduced by shrinkage, the absence surge and training; the balancing policy shares those hours between voice and chat (queues in three intraday buckets, sized with Erlang C) and email (a backlog); service (Erlang A with abandonment, or Erlang C), abandonment, required and available FTE and a grade are computed. The equations below are exactly what the engine runs.',
     '',
     '## 5. Equations',
     '',

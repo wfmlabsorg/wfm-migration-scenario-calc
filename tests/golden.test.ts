@@ -34,6 +34,7 @@ describe('default policy is bit-for-bit identical to the pre-balancing engine', 
   for (const [name, f] of Object.entries(variants))
     test(name, () => {
       const i = structuredClone(DEFAULTS)
+      i.service.model = 'C' // the fixture predates Erlang A
       f(i)
       const r = run(i)
       const diffs: string[] = []

@@ -17,9 +17,9 @@ export function tidy(x: unknown, d = 3): unknown {
 
 export function weeklyTable(r: RunResult) {
   return {
-    columns: ['week', 'phase', 'heads', 'fteAvail', 'fteReq', 'voiceSL', 'chatSL', 'emailOnTime', 'backlogDays', 'utilisation', 'grade'],
+    columns: ['week', 'phase', 'heads', 'fteAvail', 'fteReq', 'voiceSL', 'voiceAbandon', 'chatSL', 'chatAbandon', 'emailOnTime', 'backlogDays', 'utilisation', 'grade'],
     rows: r.weeks.map((w) => [
-      w.week, w.phase, w.heads, w.fteAvail, w.fteReq, w.voice.sl, w.chat.sl, w.email.timeliness, w.email.backlogDays,
+      w.week, w.phase, w.heads, w.fteAvail, w.fteReq, w.voice.sl, w.voice.abandonRate, w.chat.sl, w.chat.abandonRate, w.email.timeliness, w.email.backlogDays,
       Number.isFinite(w.utilisation) ? w.utilisation : null, Number.isFinite(w.score) ? scoreToGrade(w.score).grade : '—',
     ]),
   }
@@ -92,7 +92,7 @@ export class AgentTools {
         const rows = values.map((value) => {
           const inputs = applyChanges(base.inputs, { changes: [{ path, value }] })
           const k = kpis(inputs, run(inputs))
-          return { value, worstWeek: k.worstWeek, worstGrade: k.worstGrade, worstChannel: k.worstChannel, weeksBelowTarget: k.weeksBelowTarget, peakUtilisation: k.peakUtilisation, largestFteGap: k.largestFteGap }
+          return { value, worstWeek: k.worstWeek, worstGrade: k.worstGrade, worstChannel: k.worstChannel, weeksBelowTarget: k.weeksBelowTarget, peakUtilisation: k.peakUtilisation, largestFteGap: k.largestFteGap, peakAbandonment: k.peakAbandonment }
         })
         return JSON.stringify({ path, base: String(input.label ?? '') || 'on screen', rows: tidy(rows, 2) })
       }

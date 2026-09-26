@@ -71,7 +71,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'explain_week',
-    description: "Return the engine's own arithmetic for one week of a scenario: headcount steps (moves, attrition rate × multiplier, backfill, releases), productive hours (shrinkage, surge, training), borrowed hours, and per intraday bucket the offered load in Erlangs, agents needed at target, agents given before and after spare time, and service level; email capacity, worked hours and backlog; required vs available FTE; and the grade formula with its inputs. Use it to answer any 'why' question.",
+    description: "Return the engine's own arithmetic for one week of a scenario: headcount steps (moves, attrition rate × multiplier, backfill, releases), productive hours (shrinkage, surge, training), borrowed hours, and per intraday bucket the offered load in Erlangs, agents needed at target under the service model and under Erlang C (sizing), agents given before and after spare time, service level and abandon rate; the service model with retries in and out; email capacity, worked hours and backlog; required vs available FTE; and the grade formula with its inputs. Use it to answer any 'why' question.",
     strict: true,
     input_schema: {
       type: 'object',

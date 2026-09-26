@@ -20,12 +20,14 @@ staff leave before the work does. A headcount waterfall can't show that; this ca
 | Freeze | Start and end week; tension effect on attrition; backfill before the freeze |
 | Demand | Weekly runoff of the existing book; step-downs (e.g. contract expiries); whether new demand is being taken on |
 | After the freeze | Attrition after the announcement; absence surge; up to four waves (share of the book, staff move with it); training hours before each wave; optional release of surplus staff after a notice period |
+| Service model | Erlang A (default: patience per channel, redial share, abandonment cap on the grade) or Erlang C (no abandonment); optional Erlang C overlay |
+| Channel balancing | Strict priority (reorderable), protect email, share the shortfall, equal attainment |
 | Borrowed capacity | FTE, weeks, AHT penalty, which channels it can handle |
 | Uncertainty | Optional Monte Carlo over freeze length, the attrition effects, the absence surge and runoff |
 
 ## What you get
 
-- Service level per channel per week against target, with the freeze and waves marked
+- Service level per channel per week against target, with the freeze and waves marked, and abandonment under Erlang A
 - Available against required FTE, and headcount
 - A grade per week on the same AAA–D- scale as the WFM Labs Risk-Rated Capacity Planner
 - With uncertainty on: 10th–90th percentile bands and the share of futures that never breach
@@ -80,9 +82,11 @@ Share links and exports record the engine commit (`&v=<sha>`). The footer links 
 
 ## How it works
 
-One blended team serves **Voice first, then Chat, and Email from whatever is left**, carrying
-a backlog. Spare time returns to Voice and Chat. Interactive channels use Erlang C across a
-peak, shoulder and off-peak profile, with fractional agents. See [docs/METHOD.md](docs/METHOD.md)
+One blended team serves Voice, Chat and Email under a balancing policy (strict priority by
+default), with Email carrying a backlog. Spare time returns to Voice and Chat. Interactive
+channels are modelled across a peak, shoulder and off-peak profile with fractional agents:
+delivered service uses **Erlang A** (customers abandon; a share redial) or **Erlang C** (nobody
+abandons), and required FTE is always sized with Erlang C. See [docs/METHOD.md](docs/METHOD.md)
 for the full method, the order of operations and the limits.
 
 Background reading on the WFM Labs wiki:
@@ -95,7 +99,8 @@ Background reading on the WFM Labs wiki:
 ```bash
 bun install
 bun run dev      # local development
-bun test         # 105 tests: Erlang reference values, invariants, priority, Monte Carlo,
+bun test         # 168 tests: Erlang C/A reference values (Erlang A against an event
+                 # simulation), invariants, balancing policies, Monte Carlo,
                  # analyst tools, relay rules, quotas, export, no-secrets guard
 bun run build    # production build to dist/
 ```

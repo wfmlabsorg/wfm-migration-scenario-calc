@@ -38,7 +38,11 @@ export function decode(hash: string): Inputs | null {
     const s = m[1].replace(/-/g, '+').replace(/_/g, '/')
     const bin = atob(s + '='.repeat((4 - (s.length % 4)) % 4))
     const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0))
-    return merge(structuredClone(DEFAULTS), JSON.parse(new TextDecoder().decode(bytes)))
+    const saved = JSON.parse(new TextDecoder().decode(bytes))
+    const inputs = merge(structuredClone(DEFAULTS), saved)
+    // links made before v1.2 have no service model: they were computed with Erlang C and must stay so
+    if (!saved || typeof saved !== 'object' || !('service' in saved)) inputs.service = { ...inputs.service, model: 'C' }
+    return inputs
   } catch {
     return null
   }

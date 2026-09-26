@@ -71,11 +71,12 @@ function band(label: string, lo: number[], hi: number[], color: string, f: (x: n
 interface Props {
   result: RunResult
   compare?: RunResult | null
+  erlangC?: RunResult | null // the same scenario under Erlang C, for comparison
   bands?: McBands | null
   targets: { voice: number; chat: number }
 }
 
-export function ServiceChart({ result, compare, bands, targets }: Props) {
+export function ServiceChart({ result, compare, erlangC, bands, targets }: Props) {
   const labels = result.weeks.map((w) => `W${w.week}`)
   const ds: ChartDataset<'line'>[] = []
   if (bands) {
@@ -83,24 +84,34 @@ export function ServiceChart({ result, compare, bands, targets }: Props) {
     ds.push(...band('Chat', bands.p10.chat, bands.p90.chat, COLORS.chat, pctOrNull))
     ds.push(...band('Email', bands.p10.email, bands.p90.email, COLORS.email, pctOrNull))
   }
-  const line = (label: string, data: (number | null)[], color: string, dashed = false): ChartDataset<'line'> => ({
-    label, data, borderColor: color, backgroundColor: color, borderWidth: dashed ? 1.5 : 2, borderDash: dashed ? [5, 4] : undefined,
+  const line = (label: string, data: (number | null)[], color: string, dashed = false, dash?: number[], width?: number): ChartDataset<'line'> => ({
+    label, data, borderColor: color, backgroundColor: color, borderWidth: width ?? (dashed ? 1.5 : 2), borderDash: dash ?? (dashed ? [5, 4] : undefined),
     pointRadius: 0, tension: 0.15, spanGaps: false,
   })
+  const abandons = result.weeks.some((w) => w.voice.abandoned > 0 || w.chat.abandoned > 0)
   ds.push(line('Voice SL', result.weeks.map((w) => pctOrNull(w.voice.sl)), COLORS.voice))
   ds.push(line('Chat SL', result.weeks.map((w) => pctOrNull(w.chat.sl)), COLORS.chat))
   ds.push(line('Email on-time', result.weeks.map((w) => pctOrNull(w.email.timeliness)), COLORS.email))
+  if (abandons) {
+    ds.push(line('Voice abandon', result.weeks.map((w) => pctOrNull(w.voice.abandonRate)), COLORS.voice, false, [1, 3], 1.5))
+    ds.push(line('Chat abandon', result.weeks.map((w) => pctOrNull(w.chat.abandonRate)), COLORS.chat, false, [1, 3], 1.5))
+  }
+  if (erlangC) {
+    ds.push(line('Voice (Erlang C)', erlangC.weeks.map((w) => pctOrNull(w.voice.sl)), `${COLORS.voice}99`, false, [2, 2], 1))
+    ds.push(line('Chat (Erlang C)', erlangC.weeks.map((w) => pctOrNull(w.chat.sl)), `${COLORS.chat}99`, false, [2, 2], 1))
+    ds.push(line('Email (Erlang C)', erlangC.weeks.map((w) => pctOrNull(w.email.timeliness)), `${COLORS.email}99`, false, [2, 2], 1))
+  }
   if (compare) {
-    ds.push(line('Voice (A)', compare.weeks.map((w) => pctOrNull(w.voice.sl)), COLORS.voice, true))
-    ds.push(line('Chat (A)', compare.weeks.map((w) => pctOrNull(w.chat.sl)), COLORS.chat, true))
-    ds.push(line('Email (A)', compare.weeks.map((w) => pctOrNull(w.email.timeliness)), COLORS.email, true))
+    ds.push(line('Voice (scenario A)', compare.weeks.map((w) => pctOrNull(w.voice.sl)), COLORS.voice, true))
+    ds.push(line('Chat (scenario A)', compare.weeks.map((w) => pctOrNull(w.chat.sl)), COLORS.chat, true))
+    ds.push(line('Email (scenario A)', compare.weeks.map((w) => pctOrNull(w.email.timeliness)), COLORS.email, true))
   }
   const tg = targets.voice === targets.chat
     ? [{ value: targets.voice * 100, label: `Target ${Math.round(targets.voice * 100)}%` }]
     : [{ value: targets.voice * 100, label: `Voice target ${Math.round(targets.voice * 100)}%` }, { value: targets.chat * 100, label: `Chat target ${Math.round(targets.chat * 100)}%` }]
   return (
     <div className="h-[300px]">
-      <Line data={{ labels, datasets: ds }} options={options('Service level / on-time %', 100, annotations(result, tg))} />
+      <Line data={{ labels, datasets: ds }} options={options(abandons ? 'Service level / on-time / abandon %' : 'Service level / on-time %', 100, annotations(result, tg))} />
     </div>
   )
 }
@@ -112,7 +123,7 @@ export function CapacityChart({ result, compare, bands }: Omit<Props, 'targets'>
   ds.push({ label: 'Available FTE (productive, incl. borrowed)', data: result.weeks.map((w) => numOrNull(w.fteAvail)), borderColor: COLORS.avail, backgroundColor: COLORS.avail, borderWidth: 2, pointRadius: 0 })
   ds.push({ label: 'Required FTE (all targets met)', data: result.weeks.map((w) => numOrNull(w.fteReq)), borderColor: COLORS.req, backgroundColor: COLORS.req, borderWidth: 2, borderDash: [6, 4], pointRadius: 0 })
   ds.push({ label: 'Headcount', data: result.weeks.map((w) => numOrNull(w.heads)), borderColor: COLORS.heads, backgroundColor: COLORS.heads, borderWidth: 1.5, pointRadius: 0 })
-  if (compare) ds.push({ label: 'Available FTE (A)', data: compare.weeks.map((w) => numOrNull(w.fteAvail)), borderColor: COLORS.avail, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0 })
+  if (compare) ds.push({ label: 'Available FTE (scenario A)', data: compare.weeks.map((w) => numOrNull(w.fteAvail)), borderColor: COLORS.avail, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0 })
   return (
     <div className="h-[260px]">
       <Line data={{ labels, datasets: ds }} options={options('FTE', undefined, annotations(result))} />

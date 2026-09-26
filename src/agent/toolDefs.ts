@@ -87,7 +87,9 @@ export const TOOL_DEFS = [
   {
     name: 'run_scenario',
     description: 'Run the engine on the on-screen inputs with the given changes applied, WITHOUT changing the screen. Store the run under a short label for later explain_week, compare, sweep, run_monte_carlo or apply_to_calculator. Returns headline results and a compact weekly table.',
-    strict: true,
+    // Not strict: with every tool strict, the compiled grammar exceeds the API's size limit (this
+    // tool carries the path enum and four nested schemas). Its input is validated by applyChanges.
+    strict: false,
     input_schema: {
       type: 'object',
       properties: { label: { type: 'string', description: 'Short unique label, e.g. "borrow15".' }, changes: changesSchema, waves: wavesSchema, step_downs: stepDownsSchema, balance: balanceSchema, book: bookSchema },

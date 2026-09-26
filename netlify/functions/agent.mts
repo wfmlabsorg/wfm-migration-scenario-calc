@@ -72,6 +72,16 @@ export default async (req: Request, context: Context) => {
     messages: withCacheBreakpoint(v.messages) as Anthropic.MessageParam[],
   })
 
+  // Wait for the upstream response so a rejected request (400/429/529) becomes a JSON error for
+  // the client instead of an empty 200 body from an erroring stream.
+  try {
+    await stream.withResponse()
+  } catch (e) {
+    const status = typeof (e as { status?: number }).status === 'number' ? (e as { status: number }).status : 502
+    console.error('analyst upstream error', status, String((e as Error).message).slice(0, 300))
+    return json(502, { error: 'upstream', message: status === 429 || status === 529 ? 'The analyst is busy; try again in a minute.' : 'The analyst could not start this turn. The calculator still works.' })
+  }
+
   // Record spend when the turn finishes, even after the response has been handed back.
   context.waitUntil(
     stream

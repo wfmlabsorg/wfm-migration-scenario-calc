@@ -85,9 +85,14 @@ describe('change validation', () => {
     expect(c.service.redialRate).toBe(0.2)
     expect(applyChanges(c, { changes: [{ path: 'service.useErlangA', value: 1 }] }).service.model).toBe('A')
   })
-  test('tool schemas are strict-shaped', () => {
+  test('tool schemas are strict-shaped, and the strict grammar stays under the API limit', () => {
+    // Verified 2026-09-27 against the live API: ten strict tools (with run_scenario strict) are
+    // rejected as "compiled grammar too large"; nine strict with run_scenario loose are accepted.
+    const strict = TOOL_DEFS.filter((t) => t.strict)
+    expect(strict.length).toBeLessThanOrEqual(9)
+    expect(TOOL_DEFS.find((t) => t.name === 'run_scenario')!.strict).toBe(false)
+    expect(JSON.stringify(strict).length).toBeLessThan(14_000)
     for (const t of TOOL_DEFS) {
-      expect(t.strict).toBe(true)
       expect(t.input_schema.additionalProperties).toBe(false)
       expect([...t.input_schema.required].sort()).toEqual(Object.keys(t.input_schema.properties).sort())
     }

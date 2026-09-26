@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { DEFAULTS } from '../src/lib/defaults'
 import { run } from '../src/lib/engine'
 import { recordAnswer } from '../src/lib/register'
-import { CARD_FORMAT, checkCard, fromShapeCard, toShapeCard } from '../src/lib/shapeCard'
+import { CARD_FORMAT, cardWarnings, checkCard, fromShapeCard, toShapeCard } from '../src/lib/shapeCard'
 import type { Inputs } from '../src/lib/types'
 
 const clone = (): Inputs => structuredClone(DEFAULTS)
@@ -58,21 +58,32 @@ describe('shape cards', () => {
     expect(() => fromShapeCard(bad1)).toThrow(/volumes/)
   })
 
-  test('the Python pack sample card loads', () => {
-    const path = 'tests/fixtures/pack-sample-card.json'
-    const raw = JSON.parse(readFileSync(path, 'utf8')) // written by pack/src/export_shape_card.py --demo
+  test('the Python pack sample card loads and its departure curve matches the pack', () => {
+    const raw = JSON.parse(readFileSync('tests/fixtures/pack-sample-card.json', 'utf8')) // written by pack/src/export_shape_card.py (demo config)
+    const curve = JSON.parse(readFileSync('tests/fixtures/pack-sample-curve.json', 'utf8')) as { weeks: number; freezeEndMedian: number; expectedShareAtSourceFreezeFixed: number[] }
     expect(checkCard(raw)).toBeNull()
     const i = fromShapeCard(raw, 135)
-    const r = run(i)
-    expect(r.weeks.length).toBe(i.horizonWeeks)
+    expect(i.freeze.endWeek).toBe(curve.freezeEndMedian)
     // occupancy reproduces: offered workload ÷ week-0 productive hours
     const c = i.channels
     const offered = (c.voice.volume * c.voice.aht + (c.chat.volume * c.chat.aht) / c.chat.concurrency + c.email.volume * c.email.aht) / 3600
     expect(offered / (135 * i.pool.paidHours * (1 - i.pool.shrinkage))).toBeCloseTo(raw.occupancy, 2)
-    // the pack's departures arrive as waves and step-downs, and together remove about the whole book
-    const moved = i.after.waves.reduce((s, w) => s + w.pct, 0)
-    expect(moved).toBeGreaterThan(0.5)
-    expect(i.demand.stepDowns.length).toBeGreaterThan(0)
-    expect(Object.keys(i.assumptions)).toContain('freeze.length')
+    // the demand pass reproduces the pack's expected departure curve (freeze held at its median):
+    // under Erlang C no retries are added, so weekly volume ÷ week-0 volume is the demand factor
+    const det = structuredClone(i)
+    det.service.model = 'C'
+    const r = run(det)
+    expect(r.weeks.length).toBe(i.horizonWeeks)
+    const v0 = r.weeks[0].voice.volume + r.weeks[0].email.volume
+    let maxErr = 0
+    r.weeks.forEach((w, k) => { maxErr = Math.max(maxErr, Math.abs((w.voice.volume + w.email.volume) / v0 - curve.expectedShareAtSourceFreezeFixed[k])) })
+    expect(maxErr).toBeLessThan(0.05)
+    expect((r.weeks[r.weeks.length - 1].voice.volume + r.weeks[r.weeks.length - 1].email.volume) / v0).toBeLessThan(0.01)
+    // the register: the card's entries over a full not-asked register
+    expect(i.assumptions['freeze.length'].range).toEqual(raw.assumptions['freeze.length'].range)
+    expect(i.assumptions['pool.shrinkage'].status).toBe('default') // not in the card → still drawn as not asked
+    expect(Object.keys(i.assumptions).length).toBeGreaterThan(Object.keys(raw.assumptions).length)
+    expect(cardWarnings(raw)[0]).toMatch(/expected \(mean\) staircase/)
+    expect(JSON.stringify(raw)).not.toMatch(/"volume"|"fte"|"headcount"/)
   })
 })

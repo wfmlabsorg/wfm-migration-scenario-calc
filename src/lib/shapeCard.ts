@@ -5,7 +5,7 @@
 import { cloneDefaults } from './defaults'
 import { run } from './engine'
 import { PATH_META } from './questions'
-import { sanitiseRegister, syncRegister } from './register'
+import { defaultRegister, sanitiseRegister, syncRegister } from './register'
 import { sanitiseQuestions } from './share'
 import type { Assumption, Inputs, ProjectQuestion } from './types'
 
@@ -15,6 +15,7 @@ export interface ShapeCard {
   format: typeof CARD_FORMAT
   title: string
   created: string
+  note?: string // a caveat the exporter attached (e.g. that departures are an expected staircase)
   cover?: number // week 0: available ÷ required FTE (cards exported by this tool)
   occupancy?: number // week 0: offered workload hours ÷ productive hours (cards exported by the desktop pack); used when cover is absent
   mix: { voice: number; chat: number; email: number } // share of offered workload hours
@@ -86,6 +87,19 @@ function hasLongString(x: unknown): boolean {
   return false
 }
 
+/** Caveats to show the user after an import: the card's own note, plus what the modeler cannot carry. */
+export function cardWarnings(raw: unknown): string[] {
+  const out: string[] = []
+  if (!raw || typeof raw !== 'object') return out
+  const c = raw as Record<string, unknown>
+  if (typeof c.note === 'string' && c.note.length <= 200) out.push(c.note)
+  const s = (c.scenario ?? {}) as Record<string, Record<string, unknown>>
+  const steps = (s.demand?.stepDowns as unknown[] | undefined)?.length ?? 0
+  if (steps > 0) out.push('Step-downs are fixed calendar weeks: they do not move with the freeze length.')
+  if (typeof c.occupancy === 'number' && typeof c.cover !== 'number') out.push('Volumes were rebuilt from week-0 occupancy for the team size you chose; pick a size near the real one, because bigger pools serve better at the same occupancy.')
+  return out
+}
+
 /** Rejects anything that is not a scale-free card. Returns a readable reason. */
 export function checkCard(raw: unknown): string | null {
   if (!raw || typeof raw !== 'object') return 'Not a shape card (expected a JSON object).'
@@ -140,8 +154,9 @@ export function fromShapeCard(raw: unknown, teamFte = 250): Inputs {
     setWorkload(card.occupancy! * teamFte * inp.pool.paidHours * (1 - inp.pool.shrinkage))
   }
   for (const c of CHANNELS) inp.channels[c].volume = Math.round(inp.channels[c].volume)
-  // register: relative ranges on scaled inputs become absolute around the rebuilt values
-  const reg = sanitiseRegister(card.assumptions)
+  // register: the card's entries over a full "not asked" register, so inputs the card does not
+  // mention stay unanswered (and drawn) rather than becoming fixed points
+  const reg = { ...defaultRegister(inp), ...sanitiseRegister(card.assumptions) }
   for (const [path, a] of Object.entries(reg)) {
     if (PATH_META[path]?.scaled && a.range) {
       const keys = path.split('.')

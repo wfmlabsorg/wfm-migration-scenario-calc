@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULTS } from '../src/lib/defaults'
 import { run } from '../src/lib/engine'
+import { worstWeek } from '../src/lib/kpis'
 import { dossier } from '../src/lib/dossier'
 import { EQUATIONS } from '../src/lib/equations'
 import { commitOf, decode, toHash } from '../src/lib/share'
@@ -45,7 +46,7 @@ describe('scenario dossier', () => {
     expect(m2).toContain('## 8. Inputs (JSON)')
   })
   test('the worked example uses the engine trace of the worst week', () => {
-    const worst = r.weeks.filter((w) => Number.isFinite(w.score)).reduce((a, w) => (w.score < a.score ? w : a))
+    const worst = worstWeek(DEFAULTS, r)!
     const t = run(DEFAULTS, { traceWeek: worst.week }).trace!
     expect(md).toContain(`The worst week is **week ${worst.week}**`)
     expect(md).toContain(`= **${t.headcount.end.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**`)

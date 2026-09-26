@@ -1,6 +1,6 @@
 // Headline figures for a run: shared by the page and the analyst so both report the same numbers.
 import { scoreToGrade } from './grade'
-import type { Inputs, RunResult } from './types'
+import type { Inputs, RunResult, WeekResult } from './types'
 
 export interface Kpis {
   worstWeek: number | null
@@ -22,9 +22,31 @@ export interface Kpis {
 
 const pct = (x: number) => `${(x * 100).toFixed(0)}%`
 
+/** Worst attainment of a week's scored channels (service ÷ target; email its on-time index). */
+export function worstAttainment(inp: Inputs, w: WeekResult): number {
+  const t = inp.channels
+  return Math.min(
+    w.voice.scored ? w.voice.sl / t.voice.slTarget : Infinity,
+    w.chat.scored ? w.chat.sl / t.chat.slTarget : Infinity,
+    w.email.scored ? w.email.timeliness : Infinity,
+  )
+}
+
+/**
+ * The worst graded week: lowest score; ties (several D- weeks) broken by the lowest attainment,
+ * then the earliest week. The page, the KPIs and the dossier all use this rule.
+ */
+export function worstWeek(inp: Inputs, r: RunResult): WeekResult | null {
+  let best: WeekResult | null = null
+  for (const w of r.weeks) {
+    if (!Number.isFinite(w.score)) continue
+    if (!best || w.score < best.score - 1e-12 || (Math.abs(w.score - best.score) <= 1e-12 && worstAttainment(inp, w) < worstAttainment(inp, best) - 1e-12)) best = w
+  }
+  return best
+}
+
 export function kpis(inp: Inputs, r: RunResult): Kpis {
-  const graded = r.weeks.filter((w) => Number.isFinite(w.score))
-  const worst = graded.length ? graded.reduce((a, w) => (w.score < a.score ? w : a)) : null
+  const worst = worstWeek(inp, r)
   const t = inp.channels
   let worstChannel = ''
   if (worst) {
@@ -38,7 +60,7 @@ export function kpis(inp: Inputs, r: RunResult): Kpis {
   const peak = (ch: 'voice' | 'chat') =>
     r.weeks.reduce((a, w) => (w[ch].scored && w[ch].abandonRate > a.rate ? { rate: w[ch].abandonRate, week: w.week } : a), { rate: 0, week: 0 })
   const capped = !!worst && worst.cappedByAbandonment
-  const gap = r.weeks.reduce((a, w) => (w.fteReq - w.fteAvail > a.fteReq - a.fteAvail ? w : a), r.weeks[0])
+  const gap = r.weeks.length ? r.weeks.reduce((a, w) => (w.fteReq - w.fteAvail > a.fteReq - a.fteAvail ? w : a), r.weeks[0]) : null
   return {
     worstWeek: worst?.week ?? null,
     worstGrade: worst ? scoreToGrade(worst.score).grade : '—',
@@ -49,7 +71,7 @@ export function kpis(inp: Inputs, r: RunResult): Kpis {
       email: r.weeks.filter((w) => w.email.scored && w.email.timeliness < 1 - 1e-6).length,
     },
     peakUtilisation: Math.max(0, ...r.weeks.map((w) => (Number.isFinite(w.utilisation) ? w.utilisation : 0))),
-    largestFteGap: { week: gap.week, fte: Math.max(0, gap.fteReq - gap.fteAvail) },
+    largestFteGap: gap ? { week: gap.week, fte: Math.max(0, gap.fteReq - gap.fteAvail) } : { week: 0, fte: 0 },
     worstEmailBacklogDays: Math.max(0, ...r.weeks.map((w) => w.email.backlogDays)),
     peakAbandonment: { voice: peak('voice'), chat: peak('chat') },
     totalAbandoned: { voice: r.weeks.reduce((s, w) => s + w.voice.abandoned, 0), chat: r.weeks.reduce((s, w) => s + w.chat.abandoned, 0) },

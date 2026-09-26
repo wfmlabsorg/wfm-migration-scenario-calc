@@ -2,13 +2,15 @@
   "format": "wfm-migration-shape-card/1",
   "title": "Migration scenario (from the desktop pack)",
   "created": "2026-09-26",
+  "note": "Departures are the expected (mean) staircase over the pack's draws; the pack's P50 trough is deeper. Turn on bands and treat this as exploration.",
   "occupancy": 0.7658,
   "mix": {
-    "voice": 0.7829,
+    "voice": 0.7823,
     "chat": 0.0,
-    "email": 0.2171
+    "email": 0.2177
   },
   "borrowedShare": 0.0,
+  "stepDownsRelativeToFreezeEnd": false,
   "scenario": {
     "horizonWeeks": 52,
     "channels": {
@@ -18,7 +20,9 @@
         "slSeconds": 60
       },
       "chat": {
-        "aht": 600
+        "aht": 600,
+        "slTarget": 0.8,
+        "slSeconds": 60
       },
       "email": {
         "targetDays": 2.0
@@ -49,59 +53,59 @@
     },
     "freeze": {
       "startWeek": 0,
-      "endWeek": 14,
+      "endWeek": 15,
       "backfillBefore": false
     },
     "demand": {
-      "runoffPctWeek": 0,
+      "runoffPctWeek": 0.0,
       "stepDowns": [
         {
-          "week": 6,
-          "pct": 0.0149
+          "week": 4,
+          "pct": 0.0126
         },
         {
           "week": 17,
-          "pct": 0.0131
+          "pct": 0.0084
         },
         {
           "week": 19,
-          "pct": 0.0239
+          "pct": 0.0207
         },
         {
           "week": 20,
-          "pct": 0.011
-        },
-        {
-          "week": 21,
-          "pct": 0.0155
-        },
-        {
-          "week": 22,
-          "pct": 0.0164
-        },
-        {
-          "week": 23,
-          "pct": 0.0117
-        },
-        {
-          "week": 24,
-          "pct": 0.0116
-        },
-        {
-          "week": 25,
-          "pct": 0.0102
-        },
-        {
-          "week": 26,
           "pct": 0.0165
         },
         {
-          "week": 28,
-          "pct": 0.012
+          "week": 21,
+          "pct": 0.0253
+        },
+        {
+          "week": 22,
+          "pct": 0.0263
+        },
+        {
+          "week": 23,
+          "pct": 0.0183
+        },
+        {
+          "week": 24,
+          "pct": 0.0165
+        },
+        {
+          "week": 25,
+          "pct": 0.0147
+        },
+        {
+          "week": 26,
+          "pct": 0.0133
+        },
+        {
+          "week": 27,
+          "pct": 0.0119
         },
         {
           "week": 32,
-          "pct": 0.0074
+          "pct": 0.0306
         }
       ],
       "intakeOn": false
@@ -110,29 +114,36 @@
       "waves": [
         {
           "weeksAfterFreeze": 6,
-          "pct": 0.2501
+          "pct": 0.2736
         },
         {
           "weeksAfterFreeze": 12,
-          "pct": 0.4223
+          "pct": 0.5079
         },
         {
           "weeksAfterFreeze": 18,
-          "pct": 0.1752
+          "pct": 0.2183
         }
       ],
-      "trainingHours": 24,
+      "trainingHours": 24.0,
       "trainingWeeks": 6,
       "surgePts": 0.04,
+      "surgeWeeks": 52,
       "releasesOn": true,
       "noticeWeeks": 6,
-      "releaseBuffer": 0.05
+      "releaseBuffer": 0.05,
+      "lookaheadWeeks": 2
+    },
+    "borrowed": {
+      "startWeek": 8,
+      "endWeek": 51,
+      "ahtPenalty": 1.2
     },
     "service": {
       "model": "A",
       "patience": {
-        "voice": 120,
-        "chat": 120
+        "voice": 120.0,
+        "chat": 300.0
       },
       "redialRate": 0.4,
       "abandonCap": 0.1
@@ -141,20 +152,20 @@
   "assumptions": {
     "freeze.startWeek": {
       "range": [
-        0,
-        0,
-        0
+        0.0,
+        0.0,
+        0.0
       ],
-      "status": "estimated"
+      "status": "default"
     },
     "freeze.length": {
       "range": [
         8.0,
-        14.0,
+        15.0,
         26.0
       ],
-      "status": "estimated",
-      "note": "From the pack's freeze end range"
+      "status": "default",
+      "note": "From the pack's freeze end range; the likely value is the median draw"
     },
     "attrition.annual": {
       "range": [
@@ -162,7 +173,7 @@
         0.15,
         0.15
       ],
-      "status": "confirmed"
+      "status": "default"
     },
     "attrition.tensionMult": {
       "range": [
@@ -170,7 +181,7 @@
         1.4,
         2.2
       ],
-      "status": "estimated"
+      "status": "default"
     },
     "attrition.postMult": {
       "range": [
@@ -178,7 +189,7 @@
         3.0,
         5.0
       ],
-      "status": "estimated",
+      "status": "default",
       "note": "Release group; the transfer group is milder in the pack"
     },
     "after.surgePts": {
@@ -187,7 +198,7 @@
         0.04,
         0.1
       ],
-      "status": "estimated"
+      "status": "default"
     },
     "after.trainingHours": {
       "range": [
@@ -195,29 +206,37 @@
         24.0,
         24.0
       ],
-      "status": "confirmed"
-    },
-    "channels.voice.volume": {
-      "range": [
-        0.92,
-        1,
-        1.08
-      ],
       "status": "default"
     },
-    "channels.email.volume": {
+    "after.noticeWeeks": {
       "range": [
-        0.92,
-        1,
-        1.08
+        6.0,
+        6.0,
+        6.0
       ],
       "status": "default"
     },
     "service.patience.voice": {
       "range": [
-        120,
-        120,
-        120
+        120.0,
+        120.0,
+        120.0
+      ],
+      "status": "default"
+    },
+    "service.patience.chat": {
+      "range": [
+        300.0,
+        300.0,
+        300.0
+      ],
+      "status": "default"
+    },
+    "service.redialRate": {
+      "range": [
+        0.4,
+        0.4,
+        0.4
       ],
       "status": "default"
     },
@@ -228,13 +247,30 @@
     "demand.stepDowns": {
       "status": "estimated",
       "note": "Exits and re-platforming, expected over the pack's draws"
+    },
+    "channels.voice.volume": {
+      "range": [
+        0.92,
+        1.0,
+        1.08
+      ],
+      "status": "default",
+      "note": "Forecast error from the pack's volume_error (relative to the rebuilt volume)"
+    },
+    "channels.email.volume": {
+      "range": [
+        0.9199999999999999,
+        1.0,
+        1.08
+      ],
+      "status": "default",
+      "note": "Forecast error from the pack's volume_error (relative to the rebuilt volume)"
     }
   },
   "questions": [],
   "source": {
     "tool": "CP-WFM-019 pack",
-    "freezeEndMedian": 15,
-    "pools": 3,
-    "clients": 56
+    "version": "1.1",
+    "date": "2026-09-26"
   }
 }

@@ -31,7 +31,7 @@ export function setPath(inp: Inputs, path: string, value: number): void {
   node[keys[keys.length - 1]] = v
 }
 
-const clampTriple = (path: string, [lo, mid, hi]: Triple): Triple => {
+export const clampTriple = (path: string, [lo, mid, hi]: Triple): Triple => {
   const m = PATH_META[path]
   const c = (x: number) => (m ? Math.min(m.max, Math.max(m.min, x)) : x)
   const r = (x: number) => (m?.integer ? Math.round(x) : x)
@@ -64,14 +64,17 @@ export function defaultRegister(inp: Inputs): Record<string, Assumption> {
 
 /**
  * Keeps the register in step after an input changes: likely = the input's value. An unanswered
- * entry re-centres its generic range; an answered one keeps its bounds, widened if needed.
+ * entry re-centres its generic range; a confirmed point follows the input; an estimated range
+ * keeps its bounds, widened if needed.
  */
 export function syncRegister(inp: Inputs): void {
   for (const [path, a] of Object.entries(inp.assumptions)) {
     if (!a.range || !PATH_META[path]) continue
     const v = getPath(inp, path)
     if (!Number.isFinite(v) || v === a.range[1]) continue
-    a.range = a.status === 'default' ? rangeFor(path, v, 'default') : clampTriple(path, [Math.min(a.range[0], v), v, Math.max(a.range[2], v)])
+    if (a.status === 'default') a.range = rangeFor(path, v, 'default')
+    else if (a.status === 'confirmed' && a.range[0] === a.range[2]) a.range = [v, v, v] // a confirmed point moves with its input and stays a point
+    else a.range = clampTriple(path, [Math.min(a.range[0], v), v, Math.max(a.range[2], v)])
   }
 }
 
@@ -133,7 +136,8 @@ export function migrateV12Uncertainty(u: Record<string, unknown> | undefined): R
   const out: Record<string, Assumption> = {}
   for (const [k, path] of Object.entries(map)) {
     const t = u?.[k]
-    if (Array.isArray(t) && t.length === 3) out[path] = { range: t as Triple, status: 'estimated' }
+    if (Array.isArray(t) && t.length === 3 && t.every((x) => typeof x === 'number' && Number.isFinite(x)))
+      out[path] = { range: clampTriple(path, [Math.min(...(t as number[])), t[1] as number, Math.max(...(t as number[]))]), status: 'estimated' }
   }
   return out
 }

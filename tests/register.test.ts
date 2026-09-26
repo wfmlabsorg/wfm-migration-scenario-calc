@@ -107,7 +107,10 @@ describe('links', () => {
     old.uncertainty = { enabled: true, draws: 500, seed: 1, freezeLength: [10, 14, 26], tensionMult: [1, 1.5, 2.5], postMult: [1.5, 2.5, 4], surgePts: [0, 0.04, 0.1], runoffPctWeek: [0, 0, 0.01] }
     const hash = Buffer.from(JSON.stringify(old)).toString('base64url')
     const i = decode(`#s=${hash}`)!
-    expect(Object.keys(i.assumptions).sort()).toEqual(['after.surgePts', 'attrition.postMult', 'attrition.tensionMult', 'demand.runoffPctWeek', 'freeze.length'])
+    // the five migrated ranges are estimated; every other question starts unasked with its generic range
+    expect(Object.entries(i.assumptions).filter(([, a]) => a.status === 'estimated').map(([p]) => p).sort()).toEqual(['after.surgePts', 'attrition.postMult', 'attrition.tensionMult', 'demand.runoffPctWeek', 'freeze.length'])
+    expect(Object.keys(i.assumptions).length).toBe(Object.keys(DEFAULTS.assumptions).length)
+    expect(i.assumptions['channels.voice.aht'].status).toBe('default')
     expect(i.assumptions['freeze.length']).toEqual({ range: [10, 14, 26], status: 'estimated' })
     expect(run(i).weeks.map((w) => w.score)).toEqual(run({ ...DEFAULTS, service: i.service }).weeks.map((w) => w.score))
   })

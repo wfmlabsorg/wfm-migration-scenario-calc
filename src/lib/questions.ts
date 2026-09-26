@@ -1,7 +1,8 @@
 // The generic question bank. Each question is something a planner has to pin someone down on;
 // each answer sets one or more model inputs, and its uncertainty is a range (low, likely, high).
 // Unanswered questions carry a deliberately wide default range, so answering them visibly
-// narrows the forecast bands.
+// narrows the forecast bands. Timing ranges are skewed late (consultations usually overrun);
+// rates and handle times are symmetric so an unanswered forecast is not biased.
 import type { Triple } from './types'
 
 export type Unit = 'weeks' | 'pct' | 'x' | 'sec' | 'hours' | 'contacts' | 'fte'
@@ -33,14 +34,14 @@ export const PATH_META: Record<string, PathMeta> = {
   'after.surgeWeeks': { label: 'Weeks the surge lasts', unit: 'weeks', integer: true, min: 0, max: 52, defaultRange: rel(0.5, 2) },
   'after.trainingHours': { label: 'Training hours per transferee', unit: 'hours', min: 0, max: 200, defaultRange: rel(0.5, 2) },
   'pool.shrinkage': { label: 'Shrinkage', unit: 'pct', min: 0, max: 0.6, defaultRange: add(-0.04, 0.06) },
-  'demand.runoffPctWeek': { label: 'Weekly runoff of the existing book', unit: 'pct', min: 0, max: 0.2, defaultRange: (x) => [0, x, Math.max(x * 2, 0.01)] },
+  'demand.runoffPctWeek': { label: 'Weekly runoff of the existing book', unit: 'pct', min: 0, max: 0.2, defaultRange: (x) => (x > 0 ? [x * 0.5, x, x * 2] : [0, 0, 0.005]) },
   'demand.intakePct': { label: 'Share of runoff replaced by new work', unit: 'pct', min: 0, max: 1.5, defaultRange: rel(0.5, 1.2) },
   'channels.voice.volume': { label: 'Voice contacts per week', unit: 'contacts', min: 0, max: 500000, defaultRange: rel(0.92, 1.08), scaled: true },
   'channels.chat.volume': { label: 'Chats per week', unit: 'contacts', min: 0, max: 500000, defaultRange: rel(0.92, 1.08), scaled: true },
   'channels.email.volume': { label: 'Emails per week', unit: 'contacts', min: 0, max: 500000, defaultRange: rel(0.92, 1.08), scaled: true },
-  'channels.voice.aht': { label: 'Voice handle time', unit: 'sec', min: 30, max: 3600, defaultRange: rel(0.9, 1.2) },
-  'channels.chat.aht': { label: 'Chat handle time', unit: 'sec', min: 30, max: 7200, defaultRange: rel(0.9, 1.2) },
-  'channels.email.aht': { label: 'Email handle time', unit: 'sec', min: 30, max: 7200, defaultRange: rel(0.9, 1.2) },
+  'channels.voice.aht': { label: 'Voice handle time', unit: 'sec', min: 30, max: 3600, defaultRange: rel(0.88, 1.12) },
+  'channels.chat.aht': { label: 'Chat handle time', unit: 'sec', min: 30, max: 7200, defaultRange: rel(0.88, 1.12) },
+  'channels.email.aht': { label: 'Email handle time', unit: 'sec', min: 30, max: 7200, defaultRange: rel(0.88, 1.12) },
   'service.patience.voice': { label: 'Caller patience', unit: 'sec', min: 5, max: 3600, defaultRange: rel(0.5, 2) },
   'service.patience.chat': { label: 'Chat customer patience', unit: 'sec', min: 5, max: 3600, defaultRange: rel(0.5, 2) },
   'service.redialRate': { label: 'Share of extra abandoners who redial', unit: 'pct', min: 0, max: 1, defaultRange: (x) => [Math.max(0, x - 0.2), x, Math.min(1, x + 0.3)] },

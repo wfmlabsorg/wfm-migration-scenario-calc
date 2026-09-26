@@ -6,7 +6,8 @@
 
 import { run } from './engine'
 import { mulberry32, pert } from './random'
-import { drawn, setPath } from './register'
+import { QUESTIONS } from './questions'
+import { drawn, setPath, syncRegister } from './register'
 import type { Inputs } from './types'
 
 export const MC_METRICS = ['voice', 'chat', 'email', 'fteAvail', 'fteReq', 'heads'] as const
@@ -19,7 +20,7 @@ export interface McBands {
   p50: Record<McMetric, number[]>
   p90: Record<McMetric, number[]>
   meetShare: number[] // per week: share of draws meeting every target
-  cleanShare: number // share of draws in which no graded week misses a target
+  cleanShare: number // share of draws in which no graded week misses a target or is capped by abandonment
   freezeEnd: { p10: number; p50: number; p90: number }
   trough: { week: number; p10: number; p50: number; p90: number } // each future's lowest weekly service on any channel; week = median week it happens
   bandWidth: number // mean p90 − p10 of service across scored weeks and channels: the headline 'how uncertain' measure
@@ -34,6 +35,17 @@ export function hash32(s: string): number {
 }
 const stream = (seed: number, key: string, draw: number) => mulberry32((seed ^ hash32(key) ^ Math.imul(draw + 1, 0x9e3779b1)) >>> 0)
 
+/** Inputs answered by one question share a random stream (forecast error is a common shock). */
+const STREAM_KEY: Record<string, string> = {}
+for (const q of QUESTIONS) if (q.sets.length > 1) for (const p of q.sets) STREAM_KEY[p] = `q:${q.id}`
+
+/** The values one future draws for every ranged register entry (the register is synced first). */
+export function drawAssumptions(inp: Inputs, seed: number, draw: number): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [path, range] of drawn(inp)) out[path] = pert(stream(seed, STREAM_KEY[path] ?? path, draw), range)
+  return out
+}
+
 /** Nearest-rank percentile of a sorted array, skipping NaN (unscored weeks). */
 export function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return NaN
@@ -41,7 +53,9 @@ export function percentile(sorted: number[], p: number): number {
   return sorted[i]
 }
 
-export function simulate(inp: Inputs, draws: number, seed: number): McBands {
+export function simulate(input: Inputs, draws: number, seed: number): McBands {
+  const inp = structuredClone(input)
+  syncRegister(inp) // draws must centre on the inputs as they are, whatever path changed them
   const W = inp.horizonWeeks
   const ranges = drawn(inp)
   const series: Record<McMetric, number[][]> = {
@@ -55,8 +69,7 @@ export function simulate(inp: Inputs, draws: number, seed: number): McBands {
   for (let d = 0; d < draws; d++) {
     const x = structuredClone(inp)
     let length = inp.freeze.endWeek - inp.freeze.startWeek
-    for (const [path, range] of ranges) {
-      const v = pert(stream(seed, path, d), range)
+    for (const [path, v] of Object.entries(drawAssumptions(inp, seed, d))) {
       if (path === 'freeze.length') length = v
       else setPath(x, path, v)
     }
@@ -74,7 +87,7 @@ export function simulate(inp: Inputs, draws: number, seed: number): McBands {
       return xs.length ? Math.min(...xs) : NaN
     }))
     r.weeks.forEach((w, i) => { if (w.meetsAll) meet[i]++ })
-    if (r.weeks.every((w) => w.meetsAll || !Number.isFinite(w.score))) clean++
+    if (r.weeks.every((w) => (w.meetsAll && !w.cappedByAbandonment) || !Number.isFinite(w.score))) clean++
   }
 
   const empty = () => Object.fromEntries(MC_METRICS.map((m) => [m, [] as number[]])) as Record<McMetric, number[]>

@@ -7,17 +7,19 @@ import BalanceCard from './components/inputs/BalanceCard'
 import ServiceModelCard from './components/inputs/ServiceModelCard'
 import AssumptionsCard from './components/inputs/AssumptionsCard'
 import { syncRegister } from './lib/register'
-import { fromShapeCard, toShapeCard } from './lib/shapeCard'
+import { cardWarnings, fromShapeCard, toShapeCard } from './lib/shapeCard'
 import ResultCard from './components/results/ResultCard'
 import { download, toCsv } from './lib/csv'
 import { dossier } from './lib/dossier'
 import { cloneDefaults } from './lib/defaults'
 import { run } from './lib/engine'
 import { getGradeTable, scoreToGrade } from './lib/grade'
+import { worstWeek } from './lib/kpis'
 import type { McBands } from './lib/montecarlo'
 import { commitOf, decode, toHash } from './lib/share'
 import { codeUrl, COMMIT, ENGINE_VERSION, REPO, SHORT } from './lib/version'
 import type { Inputs, RunResult } from './lib/types'
+import { PATH_META, STATUS_LABEL } from './lib/questions'
 
 const WIKI_ARTICLE = 'https://wiki.wfmlabs.org/wiki/Service_Level_During_Work_Migration'
 const WIKI_PACK = 'https://wiki.wfmlabs.org/wiki/Wiki:Packs/Migration_Service-Level_Simulation'
@@ -50,9 +52,8 @@ function Toggle({ label, checked, onChange, hint }: { label: string; checked: bo
 const pct = (x: number, d = 0) => (Number.isFinite(x) ? `${(x * 100).toFixed(d)}%` : '—')
 const f1 = (x: number) => (Number.isFinite(x) ? x.toFixed(1) : '—')
 
-function summarise(r: RunResult & { targets: { voice: number; chat: number } }) {
-  const graded = r.weeks.filter((w) => Number.isFinite(w.score))
-  const worst = graded.reduce((a, w) => (w.score < a.score ? w : a), graded[0] ?? r.weeks[0])
+function summarise(r: RunResult & { inputs: Inputs; targets: { voice: number; chat: number } }) {
+  const worst = worstWeek(r.inputs, r) ?? r.weeks[0]
   const below = (k: 'voice' | 'chat', t: number) => r.weeks.filter((w) => w[k].scored && w[k].sl < t - 1e-6).length
   const emailLate = r.weeks.filter((w) => w.email.scored && w.email.timeliness < 1 - 1e-6).length
   const util = Math.max(0, ...r.weeks.map((w) => (Number.isFinite(w.utilisation) ? w.utilisation : 0)))
@@ -63,8 +64,8 @@ function summarise(r: RunResult & { targets: { voice: number; chat: number } }) 
   const worstChannel = !worst
     ? ''
     : [
-        worst.voice.scored ? { k: `Voice ${pct(worst.voice.sl)}`, a: worst.voice.sl / r.targets.voice } : null,
-        worst.chat.scored ? { k: `Chat ${pct(worst.chat.sl)}`, a: worst.chat.sl / r.targets.chat } : null,
+        worst.voice.scored ? { k: `Voice SL ${pct(worst.voice.sl)}`, a: worst.voice.sl / r.targets.voice } : null,
+        worst.chat.scored ? { k: `Chat SL ${pct(worst.chat.sl)}`, a: worst.chat.sl / r.targets.chat } : null,
         worst.email.scored ? { k: `Email ${pct(worst.email.timeliness)} on time`, a: worst.email.timeliness } : null,
       ].filter((x): x is { k: string; a: number } => !!x).sort((x, y) => x.a - y.a)[0]?.k ?? ''
   return { worst, emailLate, util, gapWeek, backlog, idle, below, worstChannel, abVoice: peakAb('voice'), abChat: peakAb('chat') }
@@ -83,12 +84,24 @@ export default function App() {
   const [copied, setCopied] = useState(false)
   const workerRef = useRef<Worker | null>(null)
   const [showAgent, setShowAgent] = useState(false)
-  const [undo, setUndo] = useState<{ prev: Inputs; label: string } | null>(null)
+  const [undo, setUndo] = useState<{ prev: Inputs; label: string; message: string } | null>(null)
   const [linkCommit] = useState(() => commitOf(window.location.hash))
   const inputsRef = useRef(inputs)
   inputsRef.current = inputs
   const onAgentApply = useCallback((next: Inputs, label: string) => {
-    setUndo({ prev: inputsRef.current, label })
+    let message = `The analyst put scenario “${label}” on screen.`
+    if (label.startsWith('answer: ')) {
+      // record_assumption: say which question was answered, in words
+      const path = label.slice('answer: '.length)
+      const a = next.assumptions[path]
+      const meta = PATH_META[path]
+      const k = meta?.unit === 'pct' ? 100 : 1
+      const unit = { weeks: ' wk', pct: '%', x: '×', sec: ' s', hours: ' h', contacts: '', fte: ' FTE' }[meta?.unit ?? 'x']
+      const f = (x: number) => `${Number((x * k).toPrecision(3))}${unit}`
+      const range = a?.range ? (a.range[0] === a.range[2] ? f(a.range[1]) : `${f(a.range[0])} · ${f(a.range[1])} · ${f(a.range[2])}`) : ''
+      message = `The analyst recorded your answer for “${meta?.label ?? path}” (${STATUS_LABEL[a?.status ?? 'estimated'].toLowerCase()}${range ? ` ${range}` : ''}${a?.owner ? `, owner ${a.owner}` : ''}).`
+    }
+    setUndo({ prev: inputsRef.current, label, message })
     setInputs(next)
   }, [])
   const genRef = useRef(0)
@@ -104,7 +117,7 @@ export default function App() {
   const result = useMemo(() => run(inputs), [inputs])
   const compare = useMemo(() => (saved && showCompare ? run(saved) : null), [saved, showCompare])
   const erlangC = useMemo(() => (showC && inputs.service.model === 'A' ? run({ ...inputs, service: { ...inputs.service, model: 'C' } }) : null), [inputs, showC])
-  const s = useMemo(() => summarise({ ...result, targets: { voice: inputs.channels.voice.slTarget, chat: inputs.channels.chat.slTarget } }), [result, inputs.channels.voice.slTarget, inputs.channels.chat.slTarget])
+  const s = useMemo(() => summarise({ ...result, inputs, targets: { voice: inputs.channels.voice.slTarget, chat: inputs.channels.chat.slTarget } }), [result, inputs])
 
   // keep the URL in step with the scenario (debounced)
   useEffect(() => {
@@ -119,6 +132,9 @@ export default function App() {
       setMcState('idle')
       return
     }
+    // never draw a previous scenario's bands against the new line: clear them while the new run is pending
+    setBands(null)
+    setMcState('running')
     const t = setTimeout(() => {
       if (!workerRef.current) {
         workerRef.current = new Worker(new URL('./workers/mc.worker.ts', import.meta.url), { type: 'module' })
@@ -136,6 +152,14 @@ export default function App() {
   }, [inputs])
 
   useEffect(() => () => workerRef.current?.terminate(), [])
+
+  // Escape closes the help modal
+  useEffect(() => {
+    if (!showInfo) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowInfo(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showInfo])
 
   // remember the previous band width so every answer shows how much it narrowed the forecast
   useEffect(() => {
@@ -172,19 +196,19 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             {worstGrade && (
-              <div className="text-center">
+              <div className="text-center" title={`Worst week (W${s.worst?.week}): ${worstGrade.rating}. Graded on the worst channel against its target and the capacity headroom, most-likely inputs.`}>
                 <p className="text-[8px] text-gray-500 uppercase">Worst week</p>
                 <p className="text-sm font-bold" style={{ color: worstGrade.color }}>{worstGrade.grade}</p>
               </div>
             )}
             {mcGrade && (
-              <div className="text-center px-3 py-1 rounded bg-brand-500/10 border border-brand-500/30">
+              <div className="text-center px-3 py-1 rounded bg-brand-500/10 border border-brand-500/30" title={`${pct(bands!.cleanShare)} of simulated futures get through every graded week without missing a target; graded on the same scale (${mcGrade.probabilistic}).`}>
                 <p className="text-[8px] text-gray-400 uppercase">Futures with no breach</p>
                 <p className="text-sm font-bold" style={{ color: mcGrade.color }}>{mcGrade.grade}</p>
               </div>
             )}
             <button onClick={() => setShowAgent(true)} className="text-xs px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-400 text-white font-semibold">Ask the analyst</button>
-            <button onClick={() => setShowInfo(true)} className="ml-1 w-6 h-6 rounded-full border border-gray-600 text-gray-500 hover:text-brand-400 hover:border-brand-400 transition-colors text-xs font-bold flex items-center justify-center" title="How it works">?</button>
+            <button onClick={() => setShowInfo(true)} aria-label="How it works" className="ml-1 w-8 h-8 shrink-0 rounded-full border border-gray-600 text-gray-500 hover:text-brand-400 hover:border-brand-400 transition-colors text-xs font-bold flex items-center justify-center" title="How it works">?</button>
           </div>
         </div>
       </div>
@@ -249,10 +273,10 @@ export default function App() {
                 <div key={k} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
                   <NumberInput label="Week" value={sd.week} step={1} min={0} onChange={(v) => set((i) => { i.demand.stepDowns[k].week = Math.max(0, Math.round(v)) })} />
                   <NumberInput label="% of book" value={Math.round(sd.pct * 100)} step={1} min={0} max={100} onChange={(v) => set((i) => { i.demand.stepDowns[k].pct = Math.min(1, Math.max(0, v / 100)) })} />
-                  <button className="mb-3 text-gray-500 hover:text-red-400 text-xs" onClick={() => set((i) => { i.demand.stepDowns.splice(k, 1) })}>✕</button>
+                  <button aria-label="Remove step-down" className="mb-3 w-8 h-8 rounded text-gray-500 hover:text-red-400 text-sm" onClick={() => set((i) => { i.demand.stepDowns.splice(k, 1) })}>✕</button>
                 </div>
               ))}
-              <button className="text-[11px] text-brand-400 hover:text-brand-300" onClick={() => set((i) => { i.demand.stepDowns.push({ week: i.freeze.startWeek + 4, pct: 0.1 }) })}>+ Add step-down</button>
+              <button className="text-[11px] text-brand-400 hover:text-brand-300 min-h-8 px-1" onClick={() => set((i) => { i.demand.stepDowns.push({ week: i.freeze.startWeek + 4, pct: 0.1 }) })}>+ Add step-down</button>
             </Card>
 
             <Card title="After the freeze">
@@ -266,10 +290,10 @@ export default function App() {
                 <div key={k} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
                   <NumberInput label="Weeks after freeze" value={wv.weeksAfterFreeze} step={1} min={0} onChange={(v) => set((i) => { i.after.waves[k].weeksAfterFreeze = Math.max(0, Math.round(v)) })} />
                   <NumberInput label="% of book" value={Math.round(wv.pct * 100)} step={5} min={0} max={100} onChange={(v) => set((i) => { i.after.waves[k].pct = Math.min(1, Math.max(0, v / 100)) })} />
-                  <button className="mb-3 text-gray-500 hover:text-red-400 text-xs" onClick={() => set((i) => { i.after.waves.splice(k, 1) })}>✕</button>
+                  <button aria-label="Remove wave" className="mb-3 w-8 h-8 rounded text-gray-500 hover:text-red-400 text-sm" onClick={() => set((i) => { i.after.waves.splice(k, 1) })}>✕</button>
                 </div>
               ))}
-              {inputs.after.waves.length < 4 && <button className="text-[11px] text-brand-400 hover:text-brand-300 mb-2" onClick={() => set((i) => { i.after.waves.push({ weeksAfterFreeze: 20, pct: 0.2 }) })}>+ Add wave</button>}
+              {inputs.after.waves.length < 4 && <button className="text-[11px] text-brand-400 hover:text-brand-300 mb-2 min-h-8 px-1" onClick={() => set((i) => { i.after.waves.push({ weeksAfterFreeze: 20, pct: 0.2 }) })}>+ Add wave</button>}
               <p className="text-[10px] text-gray-500 mb-2">Total: {pct(inputs.after.waves.reduce((a, w) => a + w.pct, 0))} of the book. Staff move out in the same proportion.</p>
               <div className="grid grid-cols-2 gap-2">
                 <NumberInput label="Training h / transferee" value={inputs.after.trainingHours} step={4} min={0} onChange={(v) => set((i) => { i.after.trainingHours = Math.max(0, v) })} />
@@ -285,7 +309,8 @@ export default function App() {
             </Card>
 
             <Card title="Service model">
-              <ServiceModelCard value={inputs.service} onChange={(v) => set((i) => { i.service = v })} showC={showC} onShowC={setShowC} />
+              <ServiceModelCard value={inputs.service} onChange={(v) => set((i) => { i.service = v })} showC={showC} onShowC={setShowC}
+                lastInPriority={inputs.balance.mode === 'priority' ? inputs.balance.order[inputs.balance.order.length - 1] : null} />
             </Card>
 
             <Card title="Channel balancing">
@@ -333,7 +358,7 @@ export default function App() {
             )}
             {undo && (
               <div className="text-[11px] text-emerald-200 bg-emerald-500/10 border border-emerald-500/30 rounded px-3 py-1.5 flex items-center justify-between gap-2">
-                <span>{undo.label.startsWith('shape card') ? 'Loaded' : 'The analyst put'} “{undo.label}” on screen.</span>
+                <span>{undo.message}</span>
                 <span className="flex gap-3">
                   <button className="underline" onClick={() => { setInputs(undo.prev); setUndo(null) }}>Undo</button>
                   <button className="text-emerald-300/70" onClick={() => setUndo(null)}>Keep</button>
@@ -343,27 +368,27 @@ export default function App() {
             {result.warnings.map((w) => (
               <div key={w} className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-1.5">{w}</div>
             ))}
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            <div className={`grid grid-cols-2 md:grid-cols-3 gap-3 ${inputs.service.model === 'A' ? 'xl:grid-cols-7' : 'xl:grid-cols-6'}`}>
               {worstGrade && (
-                <div className="rounded-lg border p-3 text-center bg-brand-500/10 border-brand-500/30">
+                <div className="rounded-lg border p-3 text-center bg-brand-500/10 border-brand-500/30" title={`${worstGrade.grade} (${worstGrade.rating}): ${worstGrade.deterministic}. The worst week is the lowest-graded week; among equal grades, the one furthest below target. See ? for the scale.`}>
                   <p className="text-[10px] text-gray-400 uppercase tracking-wider">Worst week · W{s.worst.week}</p>
                   <p className="text-3xl font-bold" style={{ color: worstGrade.color }}>{worstGrade.grade}</p>
                   <p className="text-[10px] text-gray-400">{worstGrade.rating} · {s.worstChannel}</p>
                   {s.worst?.cappedByAbandonment && (
-                    <p className="text-[10px] text-amber-300">Capped by abandonment</p>
+                    <p className="text-[10px] text-amber-300" title={`More than ${pct(inputs.service.abandonCap)} of voice or chat customers gave up this week, so the grade is capped (BBB at best; CCC above ${pct(2 * inputs.service.abandonCap)}).`}>Capped by abandonment ⓘ</p>
                   )}
                 </div>
               )}
               <ResultCard label="Weeks below target" sublabel="Voice · Chat · Email" value={`${s.below('voice', ch.voice.slTarget)} · ${s.below('chat', ch.chat.slTarget)} · ${s.emailLate}`} />
-              {inputs.service.model === 'A' ? (
-                <ResultCard label="Peak abandonment" sublabel={`Voice · Chat · util ${pct(s.util)}`} value={`${pct(s.abVoice, 1)} · ${pct(s.abChat, 1)}`} accent={Math.max(s.abVoice, s.abChat) > inputs.service.abandonCap} />
-              ) : (
-                <ResultCard label="Peak utilisation" sublabel="Work offered ÷ capacity" value={pct(s.util)} accent={s.util > 1} />
+              {inputs.service.model === 'A' && (
+                <ResultCard label="Peak abandonment" sublabel="Voice · Chat, share who gave up" value={`${pct(s.abVoice, 1)} · ${pct(s.abChat, 1)}`} accent={Math.max(s.abVoice, s.abChat) > inputs.service.abandonCap}
+                  note={Math.max(s.abVoice, s.abChat) > inputs.service.abandonCap ? `Above the ${pct(inputs.service.abandonCap)} cap: grade capped` : `Cap ${pct(inputs.service.abandonCap)}`} />
               )}
+              <ResultCard label="Peak utilisation" sublabel="Work offered ÷ capacity" value={pct(s.util)} accent={s.util > 1} note={s.util > 1 ? 'Above 100%: more work than hours' : undefined} />
               <ResultCard label="Largest FTE gap" sublabel={`Week ${s.gapWeek.week}`} value={f1(Math.max(0, s.gapWeek.fteReq - s.gapWeek.fteAvail))} />
               <ResultCard label="Worst email backlog" sublabel={`Target ${ch.email.targetDays} day(s)`} value={`${f1(s.backlog)} d`} />
-              {bands ? (
-                <ResultCard label="Freeze ends (futures)" sublabel="10th · 50th · 90th pct" value={`W${bands.freezeEnd.p10} · W${bands.freezeEnd.p50} · W${bands.freezeEnd.p90}`} />
+              {inputs.uncertainty.enabled ? (
+                <ResultCard label="Freeze ends (futures)" sublabel="10th · 50th · 90th pct" value={bands ? `W${bands.freezeEnd.p10} · W${bands.freezeEnd.p50} · W${bands.freezeEnd.p90}` : 'Simulating…'} />
               ) : (
                 <ResultCard label="Idle borrowed hours" sublabel="Borrowed staff with nothing eligible" value={f1(s.idle)} />
               )}
@@ -372,10 +397,16 @@ export default function App() {
             <Card
               title="Service by week"
               right={
-                <span className="text-[10px] text-gray-400">
-                  {inputs.uncertainty.enabled
-                    ? mcState === 'done' ? `Bands: 10th–90th percentile of ${bands?.draws ?? 0} futures · average band ±${f1((width.now * 100) / 2)} pts${width.was !== null ? ` (was ±${f1((width.was * 100) / 2)})` : ''} · ${pct(bands?.cleanShare ?? NaN)} of futures never breach` : 'Simulating futures…'
-                    : 'Most-likely inputs'}
+                <span className="flex items-center gap-3 text-[10px] text-gray-400">
+                  <span>
+                    {inputs.uncertainty.enabled
+                      ? mcState === 'done' ? `Bands: 10th–90th percentile of ${bands?.draws ?? 0} futures · average band ±${f1((width.now * 100) / 2)} pts${width.was !== null ? ` (was ±${f1((width.was * 100) / 2)})` : ''} · ${pct(bands?.cleanShare ?? NaN)} of futures never breach` : 'Simulating futures…'
+                      : 'Most-likely inputs'}
+                  </span>
+                  <label className="flex items-center gap-1 cursor-pointer select-none whitespace-nowrap" title="Draw every assumption from its range and show the 10th–90th percentile of futures">
+                    <input type="checkbox" className="accent-cyan-500" checked={inputs.uncertainty.enabled} onChange={(e) => set((i) => { i.uncertainty.enabled = e.target.checked })} />
+                    Bands
+                  </label>
                 </span>
               }
             >
@@ -408,8 +439,11 @@ export default function App() {
                   if (!f) return
                   try {
                     const size = Number(window.prompt('Model a team of about how many FTE? Bigger pools serve better at the same occupancy, so pick a size near the real one.', '250'))
-                    const next = fromShapeCard(JSON.parse(await f.text()), Number.isFinite(size) && size >= 10 ? Math.round(size) : 250)
-                    setUndo({ prev: inputs, label: `shape card ${f.name}` })
+                    const team = Number.isFinite(size) && size >= 10 ? Math.round(size) : 250
+                    const raw = JSON.parse(await f.text())
+                    const next = fromShapeCard(raw, team)
+                    const warn = cardWarnings(raw)
+                    setUndo({ prev: inputs, label: `shape card ${f.name}`, message: `Loaded “${f.name}” for a team of ${team} FTE; uncertainty bands turned on so the answers in the card set the ranges.${warn.length ? ' ' + warn.join(' ') : ''}` })
                     setInputs(next)
                   } catch (err) {
                     window.alert(`Could not import this card: ${(err as Error).message}`)
@@ -471,7 +505,7 @@ export default function App() {
           <div className="bg-card border border-card-border rounded-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5 text-sm text-gray-300 space-y-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center">
               <h2 className="text-base font-bold text-white">How it works</h2>
-              <button onClick={() => setShowInfo(false)} className="text-gray-500 hover:text-white">✕</button>
+              <button onClick={() => setShowInfo(false)} aria-label="Close" className="w-8 h-8 rounded text-gray-500 hover:text-white">✕</button>
             </div>
             <p>When work moves from one site or team to another, service is rarely lost at the end state. It is lost in the weeks between, when staff leave before the work does. This modeler walks a blended team through those weeks.</p>
             <ul className="list-disc pl-5 space-y-1 text-[13px]">
@@ -481,9 +515,9 @@ export default function App() {
               <li><b>Service.</b> Each week the balancing policy shares the team between Voice and Chat (queues across a peak, shoulder and off-peak profile; chat with concurrency) and Email, which carries a backlog. Spare time returns to Voice and Chat.</li>
               <li><b>Service model.</b> Erlang A (default) lets waiting customers give up after an average patience: service level counts them as misses, abandonment is reported, and a share of the extra abandoners redial the next week. Erlang C assumes nobody hangs up. Required FTE is sized with Erlang C either way.</li>
               <li><b>Borrowed capacity</b> helps only the channels it is eligible for, and is slower by its AHT multiplier.</li>
-              <li><b>Uncertainty.</b> With bands on, the freeze length, the attrition effects, the absence surge and the runoff are drawn from their ranges thousands of times (seeded, so comparisons are fair). The line always shows the most-likely inputs.</li>
+              <li><b>Uncertainty.</b> With bands on, every assumption in the register is drawn from its range thousands of times (seeded, so comparisons are fair); answering a question narrows its range and the bands. The line always shows the most-likely inputs. The <b>worst week</b> is the lowest-graded week; among equal grades, the one furthest below target.</li>
             </ul>
-            <p className="text-[13px]"><b>Grades</b> use the same scale as the Risk-Rated Capacity Planner. Each week is graded on its worst channel against target and the capacity headroom (most-likely inputs). With bands on, the header also grades the share of futures that get through every week without missing a target.</p>
+            <p className="text-[13px]"><b>Grades</b> use the same scale as the Risk-Rated Capacity Planner. Each week is graded on its worst channel against target and the capacity headroom (most-likely inputs). With bands on, the header's second badge, <b>Futures with no breach</b>, grades the share of simulated futures that get through every week without missing a target (right-hand column below). Narrower bands can lower that share: if the likely path itself breaches, removing lucky futures removes the ones that got through.</p>
             <table className="w-full text-[11px]">
               <tbody>
                 {getGradeTable().map((g) => (

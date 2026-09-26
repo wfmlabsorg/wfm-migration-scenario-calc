@@ -1,4 +1,5 @@
 // The only inputs the analyst may change, with ranges. Anything else is refused.
+import { syncRegister } from '../lib/register'
 import type { Balance, BalanceMode, Channel, Inputs, StepDown, Wave } from '../lib/types'
 
 export interface PathSpec {
@@ -120,5 +121,6 @@ export function applyChanges(base: Inputs, c: Changes): Inputs {
     if (!(c.balance.emailFloor >= 0 && c.balance.emailFloor <= 1)) throw new Error('balance email_floor must be 0–1')
     next.balance = { mode: c.balance.mode as BalanceMode, order: o as Channel[], emailFloor: c.balance.emailFloor } satisfies Balance
   }
+  syncRegister(next) // the register's likely values must follow the inputs, or the Monte Carlo draws around stale centres
   return next
 }

@@ -6,7 +6,7 @@ import type { ToolEvent } from '../agent/loop'
 import { run } from './engine'
 import { EQUATIONS } from './equations'
 import { scoreToGrade } from './grade'
-import { kpis } from './kpis'
+import { kpis, worstWeek } from './kpis'
 import { PATH_META, QUESTIONS, STATUS_LABEL } from './questions'
 import { toHash } from './share'
 import type { Inputs, RunResult, WeekTrace } from './types'
@@ -91,7 +91,18 @@ function assumptions(i: Inputs): string {
   return groups.map(([g, rows]) => [`### ${g}`, '', '| Input | Value | Meaning |', '|---|---|---|', ...rows.map((r) => row(r)), ''].join('\n')).join('\n')
 }
 
-const fmtV = (path: string, x: number) => (PATH_META[path]?.unit === 'pct' ? pct(x, 1) : Number(x.toPrecision(4)).toLocaleString('en-US'))
+const fmtV = (path: string, x: number) => {
+  const u = PATH_META[path]?.unit
+  if (u === 'pct') return pct(x, 1)
+  const v = Number(x.toPrecision(4)).toLocaleString('en-US')
+  return u === 'x' ? `${v}×` : u === 'sec' ? `${v} s` : u === 'weeks' ? `${v} wk` : u === 'hours' ? `${v} h` : v
+}
+const STRUCTURED_LABEL: Record<string, string> = {
+  'after.waves': 'Transfer waves',
+  'demand.stepDowns': 'Step-downs',
+  'freeze.backfillBefore': 'Backfill before freeze',
+  'channels.targets': 'Service targets',
+}
 
 function registerSection(i: Inputs): string {
   const qs = [...i.projectQuestions.map((q) => ({ ...q, group: 'Project' })), ...QUESTIONS]
@@ -102,7 +113,7 @@ function registerSection(i: Inputs): string {
       const a = i.assumptions[path]
       if (!a) continue
       const range = a.range ? a.range.map((x) => fmtV(path, x)).join(' · ') : '—'
-      lines.push(row([`${q.id}: ${q.text}`, PATH_META[path]?.label ?? path, range, STATUS_LABEL[a.status], [a.owner, a.note].filter(Boolean).join(' — ')]))
+      lines.push(row([`${q.id}: ${q.text}`, PATH_META[path]?.label ?? STRUCTURED_LABEL[path] ?? path, range, STATUS_LABEL[a.status], [a.owner, a.note].filter(Boolean).join(' — ')]))
       if (a.status === 'default' && !open.includes(`${q.id}: ${q.text}`)) open.push(`${q.id}: ${q.text}`)
     }
   return [
@@ -166,7 +177,7 @@ function weeklyTable(r: RunResult): string {
   const head = '| Wk | Phase | Heads | FTE avail | FTE req | Voice SL | Voice ab | Chat SL | Chat ab | Email on-time | Backlog d | Util | Grade |'
   const rows = r.weeks.map((w) => row([
     w.week, w.phase, n(w.heads), n(w.fteAvail), n(w.fteReq), pct(w.voice.sl), pct(w.voice.abandonRate), pct(w.chat.sl), pct(w.chat.abandonRate), pct(w.email.timeliness),
-    n(w.email.backlogDays, 2), pct(w.utilisation), Number.isFinite(w.score) ? scoreToGrade(w.score).grade : '—',
+    n(w.email.backlogDays, 2), pct(w.utilisation), Number.isFinite(w.score) ? scoreToGrade(w.score).grade : '— (no work left)',
   ]))
   return [head, '|---|---|---|---|---|---|---|---|---|---|---|---|---|', ...rows].join('\n')
 }
@@ -217,8 +228,15 @@ When you use it:
 export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat: ChatEntry[] = [], now = new Date()): string {
   const k = kpis(inputs, result)
   const link = `${pageUrl.split('#')[0]}#${toHash(inputs)}`
-  const worst = k.worstWeek ?? 0
+  const worstW = worstWeek(inputs, result)
+  const worst = worstW?.week ?? k.worstWeek ?? 0
   const trace = run(inputs, { traceWeek: worst }).trace!
+  const worstChannel = !worstW ? '' : [
+    worstW.voice.scored ? { k: `Voice SL ${pct(worstW.voice.sl)}`, a: worstW.voice.sl / inputs.channels.voice.slTarget } : null,
+    worstW.chat.scored ? { k: `Chat SL ${pct(worstW.chat.sl)}`, a: worstW.chat.sl / inputs.channels.chat.slTarget } : null,
+    worstW.email.scored ? { k: `Email ${pct(worstW.email.timeliness)} on time`, a: worstW.email.timeliness } : null,
+  ].filter((x): x is { k: string; a: number } => !!x).sort((x, y) => x.a - y.a)[0]?.k ?? ''
+  const worstText = worstW ? `${worst} (${scoreToGrade(worstW.score).grade}; ${worstChannel})` : '—'
   const parts = [
     '# Migration scenario dossier',
     '',
@@ -234,7 +252,7 @@ export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat
     '',
     '| Measure | Value |',
     '|---|---|',
-    row(['Worst week', `${k.worstWeek ?? '—'} (${k.worstGrade}; ${k.worstChannel})`]),
+    row(['Worst week', worstText]),
     row(['Weeks below target: voice · chat · email', `${k.weeksBelowTarget.voice} · ${k.weeksBelowTarget.chat} · ${k.weeksBelowTarget.email}`]),
     row(['Peak utilisation', pct(k.peakUtilisation)]),
     row(['Peak abandonment: voice · chat', inputs.service.model === 'A' ? `${pct(k.peakAbandonment.voice.rate, 1)} (week ${k.peakAbandonment.voice.week}) · ${pct(k.peakAbandonment.chat.rate, 1)} (week ${k.peakAbandonment.chat.week})` : 'n/a (Erlang C: nobody abandons)']),

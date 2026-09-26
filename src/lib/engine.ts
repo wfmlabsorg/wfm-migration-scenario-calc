@@ -208,18 +208,24 @@ function takeInteractive(pools: Pools, k: number, need: number, eligible: boolea
   return { given: fromB + fromI, fromBorrowed: fromB }
 }
 
-/** Email takes the same share of every bucket's email-usable capacity; returns hours worked. */
+/**
+ * Email takes borrowed time first (if eligible), then the team's own; within each pool it takes
+ * the same share of every bucket's remaining capacity. Returns hours worked.
+ */
 function drawEmail(pools: Pools, hours: number[], x: number, eligE: boolean): { worked: number; cap: number; fromBorrowed: number } {
   const inH = pools.inAg.reduce((s, a, k) => s + a * hours[k], 0)
   const borH = eligE ? pools.borAg.reduce((s, a, k) => s + a * hours[k], 0) : 0
   const cap = inH + borH
   const worked = Math.min(cap, x)
-  const share = cap > 0 ? worked / cap : 0
+  const fromBorrowed = Math.min(borH, worked)
+  const fromIn = worked - fromBorrowed
+  const shareB = borH > 0 ? fromBorrowed / borH : 0
+  const shareI = inH > 0 ? fromIn / inH : 0
   for (let k = 0; k < pools.inAg.length; k++) {
-    pools.inAg[k] = pools.inAg[k] * (1 - share)
-    if (eligE) pools.borAg[k] = pools.borAg[k] * (1 - share)
+    pools.inAg[k] = pools.inAg[k] * (1 - shareI)
+    if (eligE) pools.borAg[k] = pools.borAg[k] * (1 - shareB)
   }
-  return { worked, cap, fromBorrowed: borH * share }
+  return { worked, cap, fromBorrowed }
 }
 
 function allocate(a: AllocArgs): Allocation {
@@ -436,17 +442,29 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     const hired = phase === 'pre' && inp.freeze.backfillBefore ? Math.max(0, H0 - H) : 0
     H += hired
 
-    // 4. releases, only after the dismissal notice and never below the look-ahead need
+    // this week's productive hours per head: shrinkage plus the absence surge, less pre-wave training
+    const surge = phase === 'post' && w < freezeEnd + inp.after.surgeWeeks ? surgePts : 0
+    let trainPerHead = 0
+    for (const wv of waves)
+      if (inp.after.trainingWeeks > 0 && w >= wv.week - inp.after.trainingWeeks && w < wv.week)
+        trainPerHead += (wv.pct * inp.after.trainingHours) / inp.after.trainingWeeks
+    const prodPerHead = Math.max(1e-9, paidHours * (1 - Math.min(0.95, shrinkage + surge)) - trainPerHead)
+
+    // 4. releases, only after the dismissal notice and never below the look-ahead need: the largest
+    //    required hours over this and the next lookahead weeks, including this week's retries and
+    //    the email backlog carried in, converted to heads at this week's productive hours per head
     let released = 0
     if (inp.after.releasesOn && w >= freezeEnd + inp.after.noticeWeeks) {
-      let need = 0
-      for (let k = w; k <= Math.min(W - 1, w + inp.after.lookaheadWeeks); k++) need = Math.max(need, demand[k].fteReqNoBacklog)
-      released = Math.max(0, H - (1 + inp.after.releaseBuffer) * need)
+      let needHours = 0
+      for (let k = w + 1; k <= Math.min(W - 1, w + inp.after.lookaheadWeeks); k++) needHours = Math.max(needHours, demand[k].fteReqNoBacklog * paidHours * (1 - shrinkage))
+      const dailyNow = (d.emailArrivalHours > 0 ? d.emailArrivalHours : base.emailArrivalHours) / 5
+      const excessNow = Math.max(0, backlog - inp.channels.email.targetDays * dailyNow)
+      needHours = Math.max(needHours, d.bucketBindHours, d.interactiveNeedHours + d.emailArrivalHours + excessNow / 4)
+      released = Math.max(0, H - ((1 + inp.after.releaseBuffer) * needHours) / prodPerHead)
       H -= released
     }
 
     // 5. productive hours
-    const surge = phase === 'post' && w < freezeEnd + inp.after.surgeWeeks ? surgePts : 0
     let trainingHours = 0
     for (const wv of waves)
       if (inp.after.trainingWeeks > 0 && w >= wv.week - inp.after.trainingWeeks && w < wv.week)

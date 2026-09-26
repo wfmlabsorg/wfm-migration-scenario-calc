@@ -33,8 +33,11 @@ Each run has two passes.
    it, and the post-announcement effect after it. Expected values in the main line; binomial
    draws in the Monte Carlo.
 3. **Backfill.** Before the freeze only, back to the starting headcount.
-4. **Releases** (if on). After freeze end + notice, staff above the largest requirement in the
-   next few weeks (plus a buffer) are released.
+4. **Releases** (if on). After freeze end + notice, staff above the largest requirement over this
+   week and the next few (plus a buffer) are released. This week's requirement includes retries
+   and the email backlog carried in, and is converted to heads at this week's productive hours
+   per head (after the absence surge and pre-wave training), so a release never leaves the team
+   short in the week it happens.
 5. **Productive hours.** `heads × paid hours × (1 − shrinkage − surge) − training hours`.
    Training is spread over the weeks before each wave for the staff that wave will move.
 
@@ -49,8 +52,9 @@ Within each bucket:
    the team's own). If there aren't enough, it takes everything, and its service level is
    whatever those agents achieve.
 2. **Chat** does the same with what is left.
-3. **Email** is worked from the remaining hours across all buckets. Anything unworked carries
-   forward as backlog.
+3. **Email** is worked from the remaining hours across all buckets, borrowed time first (if
+   eligible) so the team's own hours stay available for Voice and Chat. Anything unworked
+   carries forward as backlog.
 4. **Spare hours** after email go back to Voice and Chat, in proportion to their need, so a
    team with headroom shows service above target rather than pinned to it.
 
@@ -100,8 +104,9 @@ The complete equations are in `src/lib/equations.ts`. They are included verbatim
 The grades use the same AAA–D- scale and colours as the Risk-Rated Capacity Planner.
 
 - **Week grade** (most-likely inputs).
-  - If every channel meets target: `0.70 + 0.30 × min(1, (cover − 1) ÷ 0.10)`, where
-    cover = available ÷ required FTE.
+  - If every channel meets target: `0.70 + 0.30 × clamp((cover − 1) ÷ 0.10, 0, 1)`, where
+    cover = available ÷ required FTE. Meeting every target is at least an A, even when cover
+    is below 1: required FTE is a conservative sizing (peak-bucket binding, Erlang C).
   - Otherwise: `0.70 × (worst attainment − 0.5) ÷ 0.5`, where attainment is service ÷ target
     (Email: its on-time index).
   - If a queue is unstable (agents ≤ load): D-.

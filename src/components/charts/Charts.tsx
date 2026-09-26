@@ -28,7 +28,8 @@ function annotations(r: RunResult, targets: { value: number; label: string }[] =
     if (w < r.weeks.length)
       a[`wave${i}`] = {
         type: 'line', xMin: w, xMax: w, borderColor: 'rgba(250,204,21,0.6)', borderWidth: 1, borderDash: [3, 3],
-        label: { display: true, content: `Wave ${i + 1}`, position: 'end', color: '#facc15', backgroundColor: 'transparent', font: FONT },
+        // stagger labels so close waves don't collide on narrow screens
+        label: { display: true, content: `Wave ${i + 1}`, position: 'end', yAdjust: (i % 2) * 14, color: '#facc15', backgroundColor: 'transparent', font: FONT },
       }
   })
   targets.forEach((t, i) => {

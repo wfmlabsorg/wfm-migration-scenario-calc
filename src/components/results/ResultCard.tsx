@@ -5,9 +5,10 @@ interface Props {
   icon?: string
   accent?: boolean
   large?: boolean
+  note?: string // one short line under the value
 }
 
-export default function ResultCard({ label, sublabel, value, icon, accent, large }: Props) {
+export default function ResultCard({ label, sublabel, value, icon, accent, large, note }: Props) {
   return (
     <div
       className={`rounded-lg p-4 border transition-all duration-200 hover:scale-[1.02] ${
@@ -25,6 +26,7 @@ export default function ResultCard({ label, sublabel, value, icon, accent, large
           <p className={`font-bold mt-1 ${accent ? 'text-brand-400' : 'text-white'} ${large ? 'text-2xl' : 'text-lg'}`}>
             {value}
           </p>
+          {note && <p className={`text-[10px] mt-0.5 ${accent ? 'text-amber-300' : 'text-gray-500'}`}>{note}</p>}
         </div>
         {icon && <div className="text-xl ml-2 opacity-40">{icon}</div>}
       </div>

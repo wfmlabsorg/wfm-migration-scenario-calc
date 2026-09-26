@@ -17,6 +17,7 @@ export interface McBands {
   p50: Record<McMetric, number[]>
   p90: Record<McMetric, number[]>
   meetShare: number[] // per week: share of draws meeting every target
+  cleanShare: number // share of draws in which no graded week misses a target
   freezeEnd: { p10: number; p50: number; p90: number }
 }
 
@@ -36,6 +37,7 @@ export function simulate(inp: Inputs, draws: number, seed: number): McBands {
   }
   const meet = new Array(W).fill(0)
   const ends: number[] = []
+  let clean = 0
 
   for (let d = 0; d < draws; d++) {
     const length = pert(rng, u.freezeLength)
@@ -53,6 +55,7 @@ export function simulate(inp: Inputs, draws: number, seed: number): McBands {
     series.fteReq.push(r.weeks.map((w) => w.fteReq))
     series.heads.push(r.weeks.map((w) => w.heads))
     r.weeks.forEach((w, i) => { if (w.meetsAll) meet[i]++ })
+    if (r.weeks.every((w) => w.meetsAll || !Number.isFinite(w.score))) clean++
   }
 
   const empty = () => Object.fromEntries(MC_METRICS.map((m) => [m, [] as number[]])) as Record<McMetric, number[]>
@@ -71,6 +74,7 @@ export function simulate(inp: Inputs, draws: number, seed: number): McBands {
     weeks: W,
     p10, p50, p90,
     meetShare: meet.map((x) => x / draws),
+    cleanShare: clean / draws,
     freezeEnd: { p10: percentile(ends, 0.1), p50: percentile(ends, 0.5), p90: percentile(ends, 0.9) },
   }
 }

@@ -11,7 +11,7 @@ interface Props {
 function formatValue(value: number, format?: string): string {
   switch (format) {
     case 'percent':
-      return `${Math.round(value * 100)}%`
+      return `${Number.isInteger(Math.round(value * 1000) / 10) ? Math.round(value * 100) : (value * 100).toFixed(1)}%`
     case 'currency':
       return `$${Math.round(value).toLocaleString()}`
     case 'multiplier':

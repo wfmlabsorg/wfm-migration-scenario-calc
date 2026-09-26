@@ -9,7 +9,7 @@
 
 import { curve, type ErlangCurve } from './erlang'
 import { binomial, type Rng } from './random'
-import type { Inputs, InteractiveWeek, Phase, RunResult, WeekResult, WeekTrace } from './types'
+import type { Balance, Channel, Inputs, InteractiveWeek, Phase, RunResult, WeekResult, WeekTrace } from './types'
 
 const INTERVAL = 1800 // seconds per Erlang interval
 const SLIVER = 0.1 // channels below this share of baseline volume are not scored
@@ -114,6 +114,228 @@ function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff:
   return out
 }
 
+// ---------------------------------------------------------------------------------------------
+// Channel balancing. Capacity is held per intraday bucket as agents (hours ÷ bucket hours), in two
+// pools: the team's own staff and borrowed staff (usable only on eligible channels, and used first
+// on them). Interactive channels are staffed bucket by bucket; email is deferrable and draws the
+// same share from every bucket's email-usable capacity. Each policy sets targets, the targets are
+// filled, email is topped up to its full due, and spare time returns to voice and chat.
+// Strict priority voice → chat → email reproduces the pre-balancing engine exactly.
+
+const DEFAULT_ORDER: Channel[] = ['voice', 'chat', 'email']
+
+export function normaliseBalance(b: Partial<Balance> | undefined): Balance {
+  const order = Array.isArray(b?.order) && b!.order.length === 3 && new Set(b!.order).size === 3 && b!.order.every((c) => DEFAULT_ORDER.includes(c)) ? b!.order : DEFAULT_ORDER
+  const mode = b?.mode && ['priority', 'floor', 'prorata', 'equal'].includes(b.mode) ? b.mode : 'priority'
+  const f = Number(b?.emailFloor)
+  return { mode, order, emailFloor: Number.isFinite(f) ? Math.min(1, Math.max(0, f)) : 0.9 }
+}
+
+interface Pools {
+  inAg: number[]
+  borAg: number[]
+}
+
+interface AllocArgs {
+  inp: Inputs
+  balance: Balance
+  hours: number[]
+  alloc: number[]
+  d: DemandWeek
+  P: number
+  Bhome: number
+  due: number // email backlog carried in + this week's arrivals, hours
+  dailyArr: number
+  scored: { voice: boolean; chat: boolean; email: boolean }
+}
+
+export interface Allocation {
+  nV: number[]
+  nC: number[]
+  nVBefore: number[]
+  nCBefore: number[]
+  tV: number[]
+  tC: number[]
+  worked: number
+  workedBeforeTopUp: number
+  emailCap: number
+  emailNeed: number
+  emailTarget: number
+  floorHours: number
+  borIdle: number
+  inIdle: number
+  ratio: number | null
+  attainment: number | null
+  fellBack: boolean
+  iterations: number
+  borrowedByChannel: { voice: number; chat: number; email: number }
+}
+
+const clonePools = (p: Pools): Pools => ({ inAg: [...p.inAg], borAg: [...p.borAg] })
+
+/** Borrowed first if eligible, then the team's own staff; returns agents given (≤ need). */
+function takeInteractive(pools: Pools, k: number, need: number, eligible: boolean): { given: number; fromBorrowed: number } {
+  const fromB = eligible ? Math.min(pools.borAg[k], need) : 0
+  pools.borAg[k] -= fromB
+  const fromI = Math.min(pools.inAg[k], need - fromB)
+  pools.inAg[k] -= fromI
+  return { given: fromB + fromI, fromBorrowed: fromB }
+}
+
+/** Email takes the same share of every bucket's email-usable capacity; returns hours worked. */
+function drawEmail(pools: Pools, hours: number[], x: number, eligE: boolean): { worked: number; cap: number; fromBorrowed: number } {
+  const inH = pools.inAg.reduce((s, a, k) => s + a * hours[k], 0)
+  const borH = eligE ? pools.borAg.reduce((s, a, k) => s + a * hours[k], 0) : 0
+  const cap = inH + borH
+  const worked = Math.min(cap, x)
+  const share = cap > 0 ? worked / cap : 0
+  for (let k = 0; k < pools.inAg.length; k++) {
+    pools.inAg[k] = pools.inAg[k] * (1 - share)
+    if (eligE) pools.borAg[k] = pools.borAg[k] * (1 - share)
+  }
+  return { worked, cap, fromBorrowed: borH * share }
+}
+
+function allocate(a: AllocArgs): Allocation {
+  const { inp, balance, hours, alloc, d, P, Bhome, due, dailyArr, scored } = a
+  const el = inp.borrowed.eligible
+  const pools: Pools = {
+    inAg: hours.map((h, k) => (h > 0 ? (P * alloc[k]) / h : 0)),
+    borAg: hours.map((h, k) => (h > 0 ? (Bhome * alloc[k]) / h : 0)),
+  }
+  const needV = d.buckets.map((b) => b.needV)
+  const needC = d.buckets.map((b) => b.needC)
+  const targetDays = inp.channels.email.targetDays
+  // email's need this week: its arrivals plus a quarter of any backlog beyond target (as in required FTE)
+  const emailNeed = d.emailArrivalHours + Math.max(0, due - d.emailArrivalHours - targetDays * dailyArr) / 4
+  const nV = [0, 0, 0]
+  const nC = [0, 0, 0]
+  const bor = { voice: 0, chat: 0, email: 0 }
+  let worked = 0
+  let emailCap = NaN
+  let floorHours = 0
+  let emailTarget = due
+  let ratio: number | null = null
+  let attainment: number | null = null
+  let fellBack = false
+  let iterations = 0
+
+  const staff = (ch: 'voice' | 'chat', targets: number[], p: Pools = pools, record = true) => {
+    let ok = true
+    for (let k = 0; k < 3; k++) {
+      const r = takeInteractive(p, k, targets[k], el[ch])
+      if (record) {
+        ;(ch === 'voice' ? nV : nC)[k] = r.given
+        bor[ch] += r.fromBorrowed * hours[k]
+      }
+      if (r.given < targets[k] - 1e-9) ok = false
+    }
+    return ok
+  }
+  const email = (x: number, p: Pools = pools, record = true) => {
+    const r = drawEmail(p, hours, x, el.email)
+    if (record) {
+      worked += r.worked
+      bor.email += r.fromBorrowed
+      if (Number.isNaN(emailCap)) emailCap = r.cap
+    }
+    return r.worked >= x - 1e-9
+  }
+  /** Can these targets all be met (fill voice, chat per bucket, then email)? */
+  const feasible = (tV: number[], tC: number[], tE: number) => {
+    const p = clonePools(pools)
+    return staff('voice', tV, p, false) && staff('chat', tC, p, false) && email(tE, p, false)
+  }
+  /** Largest s in [0, 1] for which targets(s) are feasible (targets must grow with s). */
+  const bisect = (targets: (s: number) => [number[], number[], number]) => {
+    if (feasible(...targets(1))) return 1
+    let lo = 0
+    let hi = 1
+    for (iterations = 0; iterations < 40 && hi - lo > 1e-6; iterations++) {
+      const mid = (lo + hi) / 2
+      if (feasible(...targets(mid))) lo = mid
+      else hi = mid
+    }
+    return lo
+  }
+
+  let tV = needV
+  let tC = needC
+  if (balance.mode === 'priority') {
+    const emailLast = balance.order[2] === 'email'
+    for (const ch of balance.order) {
+      if (ch === 'email') {
+        emailTarget = emailLast ? due : Math.min(due, emailNeed)
+        email(emailTarget)
+      } else staff(ch, ch === 'voice' ? needV : needC)
+    }
+  } else if (balance.mode === 'floor') {
+    floorHours = Math.min(due, balance.emailFloor * d.emailArrivalHours)
+    email(floorHours)
+    floorHours = worked
+    for (const ch of balance.order) if (ch !== 'email') staff(ch, ch === 'voice' ? needV : needC)
+    emailTarget = due
+  } else {
+    const prorata = (s: number): [number[], number[], number] => [needV.map((x) => s * x), needC.map((x) => s * x), s * Math.min(due, emailNeed)]
+    let targets = prorata
+    if (balance.mode === 'equal') {
+      const tVoice = inp.channels.voice.slTarget
+      const tChat = inp.channels.chat.slTarget
+      const equal = (s: number): [number[], number[], number] => [
+        d.buckets.map((b, k) => (scored.voice ? b.v.need(s * tVoice) : needV[k])),
+        d.buckets.map((b, k) => (scored.chat ? b.c.need(s * tChat) : needC[k])),
+        scored.email ? (s > 0 ? Math.max(0, due - (targetDays * dailyArr) / s) : 0) : Math.min(due, emailNeed),
+      ]
+      if (feasible(...equal(0))) {
+        targets = equal
+        attainment = bisect(equal)
+      } else fellBack = true
+    }
+    if (balance.mode === 'prorata' || fellBack) ratio = bisect(prorata)
+    const [a1, a2, a3] = targets(attainment ?? ratio ?? 1)
+    tV = a1
+    tC = a2
+    emailTarget = a3
+    staff('voice', tV)
+    staff('chat', tC)
+    email(emailTarget)
+  }
+  const nVBefore = [...nV]
+  const nCBefore = [...nC]
+  const workedBeforeTopUp = worked
+  // email is worked down to its full due with whatever is left
+  if (!(balance.mode === 'priority' && balance.order[2] === 'email') && due - worked > 1e-12) email(due - worked)
+
+  // spare time goes back to voice and chat in proportion to need
+  let borIdle = 0
+  let inIdle = 0
+  for (let k = 0; k < 3; k++) {
+    const spareIn = pools.inAg[k]
+    const spareBor = pools.borAg[k]
+    const nv = needV[k]
+    const nc = needC[k]
+    const tot = nv + nc
+    if (tot > 0) {
+      nV[k] += (spareIn * nv) / tot
+      nC[k] += (spareIn * nc) / tot
+      const eligV = el.voice && nv > 0
+      const eligC = el.chat && nc > 0
+      const eTot = (eligV ? nv : 0) + (eligC ? nc : 0)
+      if (eTot > 0) {
+        if (eligV) nV[k] += (spareBor * nv) / eTot
+        if (eligC) nC[k] += (spareBor * nc) / eTot
+      } else borIdle += spareBor * hours[k]
+    } else {
+      borIdle += spareBor * hours[k]
+      inIdle += spareIn * hours[k]
+    }
+  }
+  return {
+    nV, nC, nVBefore, nCBefore, tV, tC, worked, workedBeforeTopUp, emailCap: Number.isNaN(emailCap) ? 0 : emailCap,
+    emailNeed, emailTarget, floorHours, borIdle, inIdle, ratio, attainment, fellBack, iterations, borrowedByChannel: bor,
+  }
+}
+
 function phaseOf(w: number, start: number, end: number): Phase {
   return w < start ? 'pre' : w < end ? 'freeze' : 'post'
 }
@@ -136,6 +358,7 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
   if (freezeStart === 0 && inp.freeze.backfillBefore) warnings.push('The freeze starts in week 0, so pre-freeze backfill never applies.')
 
   const { paidHours, shrinkage, openHours } = inp.pool
+  const balance = normaliseBalance(inp.balance)
   const alloc = allocShares(inp)
   const hours = inp.profile.hourShare.map((h) => openHours * h)
   const H0 = inp.pool.fte
@@ -193,58 +416,19 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     const borrowActive = w >= b.startWeek && w <= b.endWeek && b.fte > 0
     const Bhome = borrowActive ? (b.fte * paidHours * (1 - shrinkage)) / Math.max(1, b.ahtPenalty) : 0
 
-    // allocation by priority within each bucket (agents = hours / bucket hours)
-    const nV = [0, 0, 0]
-    const nC = [0, 0, 0]
-    const leftIn: number[] = []
-    const leftBor: number[] = []
-    for (let k = 0; k < 3; k++) {
-      let inAg = hours[k] > 0 ? (P * alloc[k]) / hours[k] : 0
-      let borAg = hours[k] > 0 ? (Bhome * alloc[k]) / hours[k] : 0
-      const take = (need: number, eligible: boolean) => {
-        const fromB = eligible ? Math.min(borAg, need) : 0
-        borAg -= fromB
-        const fromI = Math.min(inAg, need - fromB)
-        inAg -= fromI
-        return fromB + fromI
-      }
-      nV[k] = take(d.buckets[k].needV, b.eligible.voice)
-      nC[k] = take(d.buckets[k].needC, b.eligible.chat)
-      leftIn.push(inAg)
-      leftBor.push(borAg)
-    }
-    const nVBefore = [...nV]
-    const nCBefore = [...nC]
-
-    // email takes what is left, proportionally from each bucket
-    const emailInH = leftIn.reduce((s, x, k) => s + x * hours[k], 0)
-    const emailBorH = b.eligible.email ? leftBor.reduce((s, x, k) => s + x * hours[k], 0) : 0
-    const emailCap = emailInH + emailBorH
+    // share the week's capacity between channels according to the balancing policy
+    const dailyArr = (d.emailArrivalHours > 0 ? d.emailArrivalHours : base.emailArrivalHours) / 5
     const due = backlog + d.emailArrivalHours
-    const worked = Math.min(emailCap, due)
+    const A = allocate({
+      inp, balance, hours, alloc, d, P, Bhome, due, dailyArr,
+      scored: {
+        voice: d.vol.voice >= SLIVER * base.vol.voice && base.vol.voice > 0,
+        chat: d.vol.chat >= SLIVER * base.vol.chat && base.vol.chat > 0,
+        email: d.vol.email >= SLIVER * base.vol.email && base.vol.email > 0,
+      },
+    })
+    const { nV, nC, nVBefore, nCBefore, worked, emailCap, borIdle, inIdle } = A
     backlog = due - worked
-    const usedShare = emailCap > 0 ? worked / emailCap : 0
-
-    // spare hours back to voice and chat, pro rata to need
-    let borIdle = 0
-    for (let k = 0; k < 3; k++) {
-      const spareIn = leftIn[k] * (1 - usedShare)
-      const spareBor = leftBor[k] * (b.eligible.email ? 1 - usedShare : 1)
-      const nv = d.buckets[k].needV
-      const nc = d.buckets[k].needC
-      const tot = nv + nc
-      if (tot > 0) {
-        nV[k] += (spareIn * nv) / tot
-        nC[k] += (spareIn * nc) / tot
-        const eligV = b.eligible.voice && nv > 0
-        const eligC = b.eligible.chat && nc > 0
-        const eTot = (eligV ? nv : 0) + (eligC ? nc : 0)
-        if (eTot > 0) {
-          if (eligV) nV[k] += (spareBor * nv) / eTot
-          if (eligC) nC[k] += (spareBor * nc) / eTot
-        } else borIdle += spareBor * hours[k]
-      } else borIdle += spareBor * hours[k]
-    }
     const borrowedUsedHours = Math.max(0, Bhome - borIdle)
 
     const vs = inp.profile.volumeShare
@@ -270,7 +454,6 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     const chat = interactive('chat', nC)
 
     const emailScored = d.vol.email >= SLIVER * base.vol.email && base.vol.email > 0
-    const dailyArr = (d.emailArrivalHours > 0 ? d.emailArrivalHours : base.emailArrivalHours) / 5
     const backlogDays = dailyArr > 0 ? backlog / dailyArr : 0
     const targetDays = inp.channels.email.targetDays
     const timeliness = backlogDays <= targetDays ? 1 : targetDays / backlogDays
@@ -336,12 +519,20 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
           hourShare: inp.profile.hourShare[k],
           allocShare: alloc[k],
           openHours: hours[k],
-          voice: { offeredErlangs: d.buckets[k].v.a, needAgents: d.buckets[k].needV, agentsBeforeSpare: nVBefore[k], agentsFinal: nV[k], serviceLevel: d.buckets[k].v.sl(nV[k]) },
-          chat: { offeredErlangs: d.buckets[k].c.a, needAgents: d.buckets[k].needC, agentsBeforeSpare: nCBefore[k], agentsFinal: nC[k], serviceLevel: d.buckets[k].c.sl(nC[k]) },
+          voice: { offeredErlangs: d.buckets[k].v.a, needAgents: d.buckets[k].needV, targetAgents: A.tV[k], agentsBeforeSpare: nVBefore[k], agentsFinal: nV[k], serviceLevel: d.buckets[k].v.sl(nV[k]) },
+          chat: { offeredErlangs: d.buckets[k].c.a, needAgents: d.buckets[k].needC, targetAgents: A.tC[k], agentsBeforeSpare: nCBefore[k], agentsFinal: nC[k], serviceLevel: d.buckets[k].c.sl(nC[k]) },
           inHouseAgentsAvailable: hours[k] > 0 ? (P * alloc[k]) / hours[k] : 0,
           borrowedAgentsAvailable: hours[k] > 0 ? (Bhome * alloc[k]) / hours[k] : 0,
         })),
-        email: { arrivalHours: d.emailArrivalHours, backlogIn, capacityHours: emailCap, workedHours: worked, backlogOut: backlog, dailyArrivalHours: dailyArr, backlogDays, targetDays, timeliness },
+        email: {
+          arrivalHours: d.emailArrivalHours, backlogIn, need: A.emailNeed, floorHours: A.floorHours, targetHours: A.emailTarget,
+          workedBeforeTopUp: A.workedBeforeTopUp, topUpHours: worked - A.workedBeforeTopUp, capacityHours: emailCap, workedHours: worked,
+          backlogOut: backlog, dailyArrivalHours: dailyArr, backlogDays, targetDays, timeliness,
+        },
+        balance: {
+          mode: balance.mode, order: balance.order, emailFloor: balance.emailFloor, ratio: A.ratio, attainment: A.attainment,
+          fellBackToProrata: A.fellBack, iterations: A.iterations, borrowedHoursByChannel: A.borrowedByChannel, inHouseIdleHours: inIdle,
+        },
         required: { bucketBindHours: d.bucketBindHours, interactiveNeedHours: d.interactiveNeedHours, emailArrivalHours: d.emailArrivalHours, excessBacklogHours: excess, requiredHours: hReq, fteRequired: fteReq, fteAvailable: fteAvail },
         grade: { meetsAll, attainment: { voice: attain[0], chat: attain[1], email: attain[2] }, worstAttainment: worst, cover, unstable: (voice.unstable && voice.scored) || (chat.unstable && chat.scored), score },
       }
@@ -360,6 +551,7 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
       prodHours: P,
       borrowedUsedHours,
       borrowedIdleHours: borIdle,
+      inHouseIdleHours: inIdle,
       fteAvail,
       fteReq,
       utilisation,

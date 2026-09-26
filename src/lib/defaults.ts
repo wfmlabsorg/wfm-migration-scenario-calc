@@ -43,6 +43,7 @@ export const DEFAULTS: Inputs = {
     releaseBuffer: 0.05,
     lookaheadWeeks: 4,
   },
+  balance: { mode: 'priority', order: ['voice', 'chat', 'email'], emailFloor: 0.9 },
   borrowed: { fte: 0, startWeek: 8, endWeek: 38, ahtPenalty: 1.2, eligible: { voice: true, chat: true, email: true } },
   uncertainty: {
     enabled: false,

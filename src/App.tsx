@@ -3,8 +3,10 @@ import AgentPanel from './components/agent/AgentPanel'
 import { CapacityChart, ServiceChart } from './components/charts/Charts'
 import NumberInput from './components/inputs/NumberInput'
 import SliderInput from './components/inputs/SliderInput'
+import BalanceCard from './components/inputs/BalanceCard'
 import ResultCard from './components/results/ResultCard'
 import { download, toCsv } from './lib/csv'
+import { dossier } from './lib/dossier'
 import { cloneDefaults } from './lib/defaults'
 import { run } from './lib/engine'
 import { getGradeTable, scoreToGrade } from './lib/grade'
@@ -281,6 +283,10 @@ export default function App() {
               )}
             </Card>
 
+            <Card title="Channel balancing">
+              <BalanceCard value={inputs.balance} onChange={(v) => set((i) => { i.balance = v })} />
+            </Card>
+
             <Card title="Borrowed capacity">
               <NumberInput label="Borrowed FTE" value={inputs.borrowed.fte} step={1} min={0} onChange={(v) => set((i) => { i.borrowed.fte = Math.max(0, v) })} />
               <div className="grid grid-cols-3 gap-2">
@@ -383,6 +389,7 @@ export default function App() {
                 </>
               )}
               <button onClick={copyLink} className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white">{copied ? 'Link copied' : 'Copy share link'}</button>
+              <button onClick={() => download('scenario-dossier.md', dossier(inputs, result, location.href))} className="text-xs px-3 py-1.5 rounded border border-brand-500/50 text-brand-400 hover:bg-brand-500/10" title="Assumptions, approach, equations, worked example and weekly results in one Markdown file, ready for Claude">Export scenario</button>
               <button onClick={() => download('migration-scenario.csv', toCsv(result))} className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white">Export CSV</button>
               <button onClick={() => setShowTable(!showTable)} className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white">{showTable ? 'Hide' : 'Show'} weekly table</button>
             </div>

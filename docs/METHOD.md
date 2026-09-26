@@ -52,6 +52,23 @@ hours. They only serve channels marked eligible; hours with nothing eligible to 
 reported as idle. Pooling borrowed staff with the team this way is an approximation: in
 practice they may work different hours or need separate routing.
 
+## Channel balancing
+
+The balancing policy decides who absorbs a shortfall:
+
+| Policy | Rule |
+|---|---|
+| Strict priority (default: voice → chat → email) | Channels take their need in order; the last absorbs the whole shortfall. The order is user-set |
+| Protect email | Email is guaranteed a share of its arrivals first; voice and chat then follow the order |
+| Share the shortfall | Every channel gets the same fraction of its need (per bucket for voice and chat, across buckets for email) |
+| Equal attainment | The largest common attainment (service ÷ target; email: on-time) that fits, found by bisection; falls back to sharing if no queue can be stabilised |
+
+Every policy then works email down to its full due from whatever is left and returns remaining time to voice and chat in proportion to need.
+
+**Why spreading a shortfall usually hurts.** Phone and chat queues near capacity are steeply non-linear (Erlang C). A few percent fewer agents can take service from target to near zero, so sharing a shortfall pushes voice and chat over that cliff, while strict priority lets email's backlog absorb it. Equal attainment maximises the worst channel, which is what the grade scores, so it tends to grade best. It is fair week by week, and the email backlog it defers is repaid through later weeks' due. The default policy reproduces the pre-balancing engine exactly (regression fixture in `tests/fixtures`).
+
+The complete equations are in `src/lib/equations.ts`. They are included verbatim in the analyst's instructions and in every exported scenario dossier.
+
 ## Measures
 
 - **Service level** (Voice, Chat): the volume-weighted Erlang C service level across the buckets.

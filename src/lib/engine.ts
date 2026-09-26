@@ -9,7 +9,7 @@
 
 import { curve, type ErlangCurve } from './erlang'
 import { binomial, type Rng } from './random'
-import type { Inputs, InteractiveWeek, Phase, RunResult, WeekResult } from './types'
+import type { Inputs, InteractiveWeek, Phase, RunResult, WeekResult, WeekTrace } from './types'
 
 const INTERVAL = 1800 // seconds per Erlang interval
 const SLIVER = 0.1 // channels below this share of baseline volume are not scored
@@ -33,6 +33,7 @@ interface DemandWeek {
 
 export interface RunOptions {
   rng?: Rng // present: attrition is drawn (Monte Carlo); absent: expected values
+  traceWeek?: number // record every intermediate for this week in RunResult.trace
   freezeEndOverride?: number
   overrides?: Partial<{ tensionMult: number; postMult: number; surgePts: number; runoffPctWeek: number }>
 }
@@ -143,10 +144,13 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
   let backlog = 0
   let backlogMoved = 0
   const weeks: WeekResult[] = []
+  let trace: WeekTrace | undefined
 
   for (let w = 0; w < W; w++) {
     const d = demand[w]
     const phase = phaseOf(w, freezeStart, freezeEnd)
+    const headsAtStart = H
+    const backlogIn = backlog
 
     // 1. waves: staff and the work's email backlog leave with it, in sequence when they share a week
     let moved = 0
@@ -209,6 +213,8 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
       leftIn.push(inAg)
       leftBor.push(borAg)
     }
+    const nVBefore = [...nV]
+    const nCBefore = [...nC]
 
     // email takes what is left, proportionally from each bucket
     const emailInH = leftIn.reduce((s, x, k) => s + x * hours[k], 0)
@@ -313,6 +319,34 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     flows.moved += moved
     flows.released += released
 
+    if (opts.traceWeek === w) {
+      const names = ['peak', 'shoulder', 'off-peak']
+      trace = {
+        week: w,
+        phase,
+        headcount: { start: headsAtStart, moved, attritionRate: p, attritionMultiplier: mult, lost, hired, released, end: H },
+        hours: {
+          paidHoursPerHead: paidHours, shrinkage, surgePts: surge, effectiveShrinkage: Math.min(0.95, shrinkage + surge),
+          grossProductive: H * paidHours * (1 - Math.min(0.95, shrinkage + surge)), trainingHours, productive: P,
+        },
+        borrowed: { active: borrowActive, fte: borrowActive ? b.fte : 0, ahtPenalty: b.ahtPenalty, homeEquivalentHours: Bhome, usedHours: borrowedUsedHours, idleHours: borIdle },
+        buckets: [0, 1, 2].map((k) => ({
+          name: names[k],
+          volumeShare: inp.profile.volumeShare[k],
+          hourShare: inp.profile.hourShare[k],
+          allocShare: alloc[k],
+          openHours: hours[k],
+          voice: { offeredErlangs: d.buckets[k].v.a, needAgents: d.buckets[k].needV, agentsBeforeSpare: nVBefore[k], agentsFinal: nV[k], serviceLevel: d.buckets[k].v.sl(nV[k]) },
+          chat: { offeredErlangs: d.buckets[k].c.a, needAgents: d.buckets[k].needC, agentsBeforeSpare: nCBefore[k], agentsFinal: nC[k], serviceLevel: d.buckets[k].c.sl(nC[k]) },
+          inHouseAgentsAvailable: hours[k] > 0 ? (P * alloc[k]) / hours[k] : 0,
+          borrowedAgentsAvailable: hours[k] > 0 ? (Bhome * alloc[k]) / hours[k] : 0,
+        })),
+        email: { arrivalHours: d.emailArrivalHours, backlogIn, capacityHours: emailCap, workedHours: worked, backlogOut: backlog, dailyArrivalHours: dailyArr, backlogDays, targetDays, timeliness },
+        required: { bucketBindHours: d.bucketBindHours, interactiveNeedHours: d.interactiveNeedHours, emailArrivalHours: d.emailArrivalHours, excessBacklogHours: excess, requiredHours: hReq, fteRequired: fteReq, fteAvailable: fteAvail },
+        grade: { meetsAll, attainment: { voice: attain[0], chat: attain[1], email: attain[2] }, worstAttainment: worst, cover, unstable: (voice.unstable && voice.scored) || (chat.unstable && chat.scored), score },
+      }
+    }
+
     weeks.push({
       week: w,
       phase,
@@ -337,5 +371,5 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     })
   }
   flows.end = H
-  return { weeks, flows, emailBacklogMovedHours: backlogMoved, freezeStart, freezeEnd, waveWeeks: waves.map((x) => x.week), warnings }
+  return { trace, weeks, flows, emailBacklogMovedHours: backlogMoved, freezeStart, freezeEnd, waveWeeks: waves.map((x) => x.week), warnings }
 }

@@ -113,7 +113,31 @@ export interface Flows {
   end: number
 }
 
+/** Every intermediate the engine computed for one week (RunOptions.traceWeek). */
+export interface WeekTrace {
+  week: number
+  phase: Phase
+  headcount: { start: number; moved: number; attritionRate: number; attritionMultiplier: number; lost: number; hired: number; released: number; end: number }
+  hours: { paidHoursPerHead: number; shrinkage: number; surgePts: number; effectiveShrinkage: number; grossProductive: number; trainingHours: number; productive: number }
+  borrowed: { active: boolean; fte: number; ahtPenalty: number; homeEquivalentHours: number; usedHours: number; idleHours: number }
+  buckets: {
+    name: string
+    volumeShare: number
+    hourShare: number
+    allocShare: number
+    openHours: number
+    voice: { offeredErlangs: number; needAgents: number; agentsBeforeSpare: number; agentsFinal: number; serviceLevel: number }
+    chat: { offeredErlangs: number; needAgents: number; agentsBeforeSpare: number; agentsFinal: number; serviceLevel: number }
+    inHouseAgentsAvailable: number
+    borrowedAgentsAvailable: number
+  }[]
+  email: { arrivalHours: number; backlogIn: number; capacityHours: number; workedHours: number; backlogOut: number; dailyArrivalHours: number; backlogDays: number; targetDays: number; timeliness: number }
+  required: { bucketBindHours: number; interactiveNeedHours: number; emailArrivalHours: number; excessBacklogHours: number; requiredHours: number; fteRequired: number; fteAvailable: number }
+  grade: { meetsAll: boolean; attainment: { voice: number; chat: number; email: number }; worstAttainment: number; cover: number; unstable: boolean; score: number }
+}
+
 export interface RunResult {
+  trace?: WeekTrace
   weeks: WeekResult[]
   flows: Flows
   emailBacklogMovedHours: number // email backlog that left with the waves

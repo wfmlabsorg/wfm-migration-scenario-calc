@@ -11,6 +11,7 @@ function neutral(): Inputs {
   const i = clone()
   i.attrition.annual = 0
   i.demand.runoffPctWeek = 0
+  i.demand.stepDowns = []
   i.after.waves = []
   i.after.surgePts = 0
   i.after.trainingHours = 0
@@ -62,7 +63,9 @@ describe('headcount flows add up exactly', () => {
 
 describe('wave shares', () => {
   test('30/30/40 of the book become conditional shares ending at 100%', () => {
-    const w = scheduledWaves(clone(), 14)
+    const i = clone()
+    i.after.waves = [{ weeksAfterFreeze: 4, pct: 0.3 }, { weeksAfterFreeze: 10, pct: 0.3 }, { weeksAfterFreeze: 16, pct: 0.4 }]
+    const w = scheduledWaves(i, 14)
     expect(w.map((x) => x.pct)).toEqual([0.3, 0.3 / 0.7, 1])
   })
   test('shares beyond 100% are capped', () => {

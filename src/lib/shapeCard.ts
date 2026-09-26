@@ -15,7 +15,8 @@ export interface ShapeCard {
   format: typeof CARD_FORMAT
   title: string
   created: string
-  cover: number // week 0: available ÷ required FTE
+  cover?: number // week 0: available ÷ required FTE (cards exported by this tool)
+  occupancy?: number // week 0: offered workload hours ÷ productive hours (cards exported by the desktop pack); used when cover is absent
   mix: { voice: number; chat: number; email: number } // share of offered workload hours
   borrowedShare: number // borrowed FTE ÷ team FTE
   scenario: Record<string, unknown> // the scenario with volumes and headcount removed
@@ -96,7 +97,9 @@ export function checkCard(raw: unknown): string | null {
   if (CHANNELS.some((k) => chans[k] && 'volume' in chans[k])) return 'The card contains absolute volumes. Shape cards carry the workload mix and cover instead.'
   if (s.pool && 'fte' in s.pool) return 'The card contains team headcount. Shape cards carry cover and shares instead.'
   if (s.borrowed && 'fte' in s.borrowed) return 'The card contains borrowed headcount. Use borrowedShare instead.'
-  if (!(typeof c.cover === 'number' && c.cover > 0.2 && c.cover < 5)) return 'Cover must be a number between 0.2 and 5.'
+  const okCover = typeof c.cover === 'number' && c.cover > 0.2 && c.cover < 5
+  const okOcc = typeof c.occupancy === 'number' && c.occupancy > 0.05 && c.occupancy < 3
+  if (!okCover && !okOcc) return 'The card needs week-0 cover (0.2–5) or occupancy (0.05–3).'
   const m = c.mix as Record<string, unknown> | undefined
   if (!m || !CHANNELS.every((k) => typeof m[k] === 'number' && (m[k] as number) >= 0)) return 'Mix must give voice, chat and email shares.'
   if (hasLongString(raw)) return 'The card contains a text longer than 200 characters.'
@@ -121,16 +124,21 @@ export function fromShapeCard(raw: unknown, teamFte = 250): Inputs {
     c.chat.volume = ((card.mix.chat / mixTotal) * hours * 3600 * Math.max(1, c.chat.concurrency)) / c.chat.aht
     c.email.volume = ((card.mix.email / mixTotal) * hours * 3600) / c.email.aht
   }
-  // cover falls as workload rises; bisect in log space
-  let lo = 1
-  let hi = teamFte * inp.pool.paidHours * 4
-  for (let k = 0; k < 60; k++) {
-    const mid = Math.sqrt(lo * hi)
-    setWorkload(mid)
-    if (weekZeroCover(inp) > card.cover) lo = mid
-    else hi = mid
+  if (typeof card.cover === 'number' && card.cover > 0) {
+    // cover falls as workload rises; bisect in log space
+    let lo = 1
+    let hi = teamFte * inp.pool.paidHours * 4
+    for (let k = 0; k < 60; k++) {
+      const mid = Math.sqrt(lo * hi)
+      setWorkload(mid)
+      if (weekZeroCover(inp) > card.cover) lo = mid
+      else hi = mid
+    }
+    setWorkload(Math.sqrt(lo * hi))
+  } else {
+    // occupancy: offered workload = occupancy × week-0 productive hours
+    setWorkload(card.occupancy! * teamFte * inp.pool.paidHours * (1 - inp.pool.shrinkage))
   }
-  setWorkload(Math.sqrt(lo * hi))
   for (const c of CHANNELS) inp.channels[c].volume = Math.round(inp.channels[c].volume)
   // register: relative ranges on scaled inputs become absolute around the rebuilt values
   const reg = sanitiseRegister(card.assumptions)

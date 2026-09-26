@@ -60,9 +60,19 @@ describe('shape cards', () => {
 
   test('the Python pack sample card loads', () => {
     const path = 'tests/fixtures/pack-sample-card.json'
-    let raw: unknown
-    try { raw = JSON.parse(readFileSync(path, 'utf8')) } catch { return } // written by the pack exporter
-    const i = fromShapeCard(raw, 250)
-    expect(run(i).weeks.length).toBe(i.horizonWeeks)
+    const raw = JSON.parse(readFileSync(path, 'utf8')) // written by pack/src/export_shape_card.py --demo
+    expect(checkCard(raw)).toBeNull()
+    const i = fromShapeCard(raw, 135)
+    const r = run(i)
+    expect(r.weeks.length).toBe(i.horizonWeeks)
+    // occupancy reproduces: offered workload ÷ week-0 productive hours
+    const c = i.channels
+    const offered = (c.voice.volume * c.voice.aht + (c.chat.volume * c.chat.aht) / c.chat.concurrency + c.email.volume * c.email.aht) / 3600
+    expect(offered / (135 * i.pool.paidHours * (1 - i.pool.shrinkage))).toBeCloseTo(raw.occupancy, 2)
+    // the pack's departures arrive as waves and step-downs, and together remove about the whole book
+    const moved = i.after.waves.reduce((s, w) => s + w.pct, 0)
+    expect(moved).toBeGreaterThan(0.5)
+    expect(i.demand.stepDowns.length).toBeGreaterThan(0)
+    expect(Object.keys(i.assumptions)).toContain('freeze.length')
   })
 })

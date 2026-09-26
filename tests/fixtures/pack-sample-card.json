@@ -1,0 +1,240 @@
+{
+  "format": "wfm-migration-shape-card/1",
+  "title": "Migration scenario (from the desktop pack)",
+  "created": "2026-09-26",
+  "occupancy": 0.7658,
+  "mix": {
+    "voice": 0.7829,
+    "chat": 0.0,
+    "email": 0.2171
+  },
+  "borrowedShare": 0.0,
+  "scenario": {
+    "horizonWeeks": 52,
+    "channels": {
+      "voice": {
+        "aht": 502,
+        "slTarget": 0.8,
+        "slSeconds": 60
+      },
+      "chat": {
+        "aht": 600
+      },
+      "email": {
+        "targetDays": 2.0
+      }
+    },
+    "pool": {
+      "shrinkage": 0.3163,
+      "paidHours": 37.5,
+      "openHours": 55.0
+    },
+    "profile": {
+      "volumeShare": [
+        0.45,
+        0.4,
+        0.15
+      ],
+      "hourShare": [
+        0.3,
+        0.45,
+        0.25
+      ],
+      "scheduleFit": 0.85
+    },
+    "attrition": {
+      "annual": 0.15,
+      "tensionMult": 1.4,
+      "postMult": 3.0
+    },
+    "freeze": {
+      "startWeek": 0,
+      "endWeek": 14,
+      "backfillBefore": false
+    },
+    "demand": {
+      "runoffPctWeek": 0,
+      "stepDowns": [
+        {
+          "week": 6,
+          "pct": 0.0149
+        },
+        {
+          "week": 17,
+          "pct": 0.0131
+        },
+        {
+          "week": 19,
+          "pct": 0.0239
+        },
+        {
+          "week": 20,
+          "pct": 0.011
+        },
+        {
+          "week": 21,
+          "pct": 0.0155
+        },
+        {
+          "week": 22,
+          "pct": 0.0164
+        },
+        {
+          "week": 23,
+          "pct": 0.0117
+        },
+        {
+          "week": 24,
+          "pct": 0.0116
+        },
+        {
+          "week": 25,
+          "pct": 0.0102
+        },
+        {
+          "week": 26,
+          "pct": 0.0165
+        },
+        {
+          "week": 28,
+          "pct": 0.012
+        },
+        {
+          "week": 32,
+          "pct": 0.0074
+        }
+      ],
+      "intakeOn": false
+    },
+    "after": {
+      "waves": [
+        {
+          "weeksAfterFreeze": 6,
+          "pct": 0.2501
+        },
+        {
+          "weeksAfterFreeze": 12,
+          "pct": 0.4223
+        },
+        {
+          "weeksAfterFreeze": 18,
+          "pct": 0.1752
+        }
+      ],
+      "trainingHours": 24,
+      "trainingWeeks": 6,
+      "surgePts": 0.04,
+      "releasesOn": true,
+      "noticeWeeks": 6,
+      "releaseBuffer": 0.05
+    },
+    "service": {
+      "model": "A",
+      "patience": {
+        "voice": 120,
+        "chat": 120
+      },
+      "redialRate": 0.4,
+      "abandonCap": 0.1
+    }
+  },
+  "assumptions": {
+    "freeze.startWeek": {
+      "range": [
+        0,
+        0,
+        0
+      ],
+      "status": "estimated"
+    },
+    "freeze.length": {
+      "range": [
+        8.0,
+        14.0,
+        26.0
+      ],
+      "status": "estimated",
+      "note": "From the pack's freeze end range"
+    },
+    "attrition.annual": {
+      "range": [
+        0.15,
+        0.15,
+        0.15
+      ],
+      "status": "confirmed"
+    },
+    "attrition.tensionMult": {
+      "range": [
+        1.0,
+        1.4,
+        2.2
+      ],
+      "status": "estimated"
+    },
+    "attrition.postMult": {
+      "range": [
+        1.5,
+        3.0,
+        5.0
+      ],
+      "status": "estimated",
+      "note": "Release group; the transfer group is milder in the pack"
+    },
+    "after.surgePts": {
+      "range": [
+        0.0,
+        0.04,
+        0.1
+      ],
+      "status": "estimated"
+    },
+    "after.trainingHours": {
+      "range": [
+        24.0,
+        24.0,
+        24.0
+      ],
+      "status": "confirmed"
+    },
+    "channels.voice.volume": {
+      "range": [
+        0.92,
+        1,
+        1.08
+      ],
+      "status": "default"
+    },
+    "channels.email.volume": {
+      "range": [
+        0.92,
+        1,
+        1.08
+      ],
+      "status": "default"
+    },
+    "service.patience.voice": {
+      "range": [
+        120,
+        120,
+        120
+      ],
+      "status": "default"
+    },
+    "after.waves": {
+      "status": "estimated",
+      "note": "Transferred work by wave, expected over the pack's draws"
+    },
+    "demand.stepDowns": {
+      "status": "estimated",
+      "note": "Exits and re-platforming, expected over the pack's draws"
+    }
+  },
+  "questions": [],
+  "source": {
+    "tool": "CP-WFM-019 pack",
+    "freezeEndMedian": 15,
+    "pools": 3,
+    "clients": 56
+  }
+}

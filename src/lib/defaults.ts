@@ -43,6 +43,7 @@ export const DEFAULTS: Inputs = {
     releaseBuffer: 0.05,
     lookaheadWeeks: 4,
   },
+  service: { model: 'A', patience: { voice: 120, chat: 300 }, redialRate: 0.4, abandonCap: 0.1 }, // patience and redial are estimates
   balance: { mode: 'priority', order: ['voice', 'chat', 'email'], emailFloor: 0.9 },
   borrowed: { fte: 0, startWeek: 8, endWeek: 38, ahtPenalty: 1.2, eligible: { voice: true, chat: true, email: true } },
   uncertainty: {

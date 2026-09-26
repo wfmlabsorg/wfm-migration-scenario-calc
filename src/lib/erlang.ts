@@ -59,6 +59,11 @@ export class ErlangCurve {
     return (1 - w) * this.slInt(lo) + w * this.slInt(lo + 1)
   }
 
+  /** Erlang C has no abandonment. */
+  abandon(_n: number): number {
+    return 0
+  }
+
   /** Fewest (fractional) agents reaching the target; sl(need(t)) === t. */
   need(target: number): number {
     if (this.a <= 0) return 0

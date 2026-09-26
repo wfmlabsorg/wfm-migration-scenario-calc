@@ -7,19 +7,32 @@
 // voice, then chat, then email from whatever is left, with spare hours returned to voice
 // and chat. Shrinkage is applied once, on the supply side.
 
-import { curve, type ErlangCurve } from './erlang'
+import { curve } from './erlang'
+import { curveA } from './erlangA'
 import { binomial, type Rng } from './random'
-import type { Balance, Channel, Inputs, InteractiveWeek, Phase, RunResult, WeekResult, WeekTrace } from './types'
+import type { Balance, Channel, Inputs, ServiceModel, InteractiveWeek, Phase, RunResult, WeekResult, WeekTrace } from './types'
 
 const INTERVAL = 1800 // seconds per Erlang interval
 const SLIVER = 0.1 // channels below this share of baseline volume are not scored
 const EPS = 1e-6
 
+/** Anything that can say what service a number of agents gives (Erlang C or Erlang A). */
+interface ServiceCurve {
+  readonly a: number
+  sl(n: number): number
+  need(target: number): number
+  abandon(n: number): number
+}
+
 interface BucketNeed {
-  v: ErlangCurve
-  c: ErlangCurve
-  needV: number // agents in the bucket
+  v: ServiceCurve // Erlang C, used for sizing (required FTE)
+  c: ServiceCurve
+  needV: number // agents needed at target under Erlang C (sizing)
   needC: number
+  sv: ServiceCurve // the service model's curve (Erlang A or the same Erlang C curve)
+  sc: ServiceCurve
+  sNeedV: number // agents needed at target under the service model (staffing and allocation)
+  sNeedC: number
 }
 
 interface DemandWeek {
@@ -62,14 +75,48 @@ export function scheduledWaves(inp: Inputs, freezeEnd: number): { week: number; 
   })
 }
 
-function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff: number): DemandWeek[] {
-  const W = inp.horizonWeeks
+/** Loads, curves and agents needed for one week's volumes (also used when retries add volume). */
+export function demandWeekFor(inp: Inputs, vol: { voice: number; chat: number; email: number }): DemandWeek {
   const { voice, chat, email } = inp.channels
   const { openHours, paidHours, shrinkage } = inp.pool
   const vs = inp.profile.volumeShare
-  const hs = inp.profile.hourShare
   const alloc = allocShares(inp)
-  const hours = hs.map((h) => openHours * h)
+  const hours = inp.profile.hourShare.map((h) => openHours * h)
+  const svc: ServiceModel = inp.service ?? { model: 'C', patience: { voice: 120, chat: 300 }, redialRate: 0, abandonCap: 1 }
+  const useA = svc.model === 'A'
+  let interactiveNeedHours = 0
+  let bucketBind = 0
+  const buckets: BucketNeed[] = vs.map((share, b) => {
+    const intervals = (hours[b] * 3600) / INTERVAL
+    const aV = intervals > 0 ? ((vol.voice * share) / intervals) * (voice.aht / INTERVAL) : 0
+    const ahtC = chat.aht / Math.max(chat.concurrency, 1)
+    const aC = intervals > 0 ? ((vol.chat * share) / intervals) * (ahtC / INTERVAL) : 0
+    const v = curve(aV, voice.slSeconds / voice.aht)
+    const c = curve(aC, chat.slSeconds / ahtC)
+    const needV = v.need(voice.slTarget)
+    const needC = c.need(chat.slTarget)
+    const needHours = (needV + needC) * hours[b]
+    interactiveNeedHours += needHours
+    if (alloc[b] > 0) bucketBind = Math.max(bucketBind, needHours / alloc[b])
+    const sv: ServiceCurve = useA ? curveA(aV, voice.aht / Math.max(1, svc.patience.voice), voice.slSeconds / voice.aht) : v
+    const sc: ServiceCurve = useA ? curveA(aC, ahtC / Math.max(1, svc.patience.chat), chat.slSeconds / ahtC) : c
+    return { v, c, needV, needC, sv, sc, sNeedV: useA ? sv.need(voice.slTarget) : needV, sNeedC: useA ? sc.need(chat.slTarget) : needC }
+  })
+  const emailArrivalHours = (vol.email * email.aht) / 3600
+  const hReq = Math.max(bucketBind, interactiveNeedHours + emailArrivalHours)
+  return {
+    vol,
+    buckets,
+    interactiveNeedHours,
+    bucketBindHours: bucketBind,
+    emailArrivalHours,
+    fteReqNoBacklog: hReq / (paidHours * (1 - shrinkage)),
+  }
+}
+
+function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff: number): DemandWeek[] {
+  const W = inp.horizonWeeks
+  const { voice, chat, email } = inp.channels
   const runoffStart = inp.demand.runoffStartWeek ?? freezeStart
   const waves = scheduledWaves(inp, freezeEnd)
 
@@ -83,33 +130,7 @@ function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff:
     const newBook = inp.demand.intakeOn ? inp.demand.intakePct * (1 - existing) : 0
     const f = (existing + newBook) * waveMult
     const vol = { voice: voice.volume * f, chat: chat.volume * f, email: email.volume * f }
-
-    let interactiveNeedHours = 0
-    let bucketBind = 0
-    const buckets: BucketNeed[] = vs.map((share, b) => {
-      const intervals = (hours[b] * 3600) / INTERVAL
-      const aV = intervals > 0 ? ((vol.voice * share) / intervals) * (voice.aht / INTERVAL) : 0
-      const ahtC = chat.aht / Math.max(chat.concurrency, 1)
-      const aC = intervals > 0 ? ((vol.chat * share) / intervals) * (ahtC / INTERVAL) : 0
-      const v = curve(aV, voice.slSeconds / voice.aht)
-      const c = curve(aC, chat.slSeconds / ahtC)
-      const needV = v.need(voice.slTarget)
-      const needC = c.need(chat.slTarget)
-      const needHours = (needV + needC) * hours[b]
-      interactiveNeedHours += needHours
-      if (alloc[b] > 0) bucketBind = Math.max(bucketBind, needHours / alloc[b])
-      return { v, c, needV, needC }
-    })
-    const emailArrivalHours = (vol.email * email.aht) / 3600
-    const hReq = Math.max(bucketBind, interactiveNeedHours + emailArrivalHours)
-    out.push({
-      vol,
-      buckets,
-      interactiveNeedHours,
-      bucketBindHours: bucketBind,
-      emailArrivalHours,
-      fteReqNoBacklog: hReq / (paidHours * (1 - shrinkage)),
-    })
+    out.push(demandWeekFor(inp, vol))
   }
   return out
 }
@@ -203,8 +224,9 @@ function allocate(a: AllocArgs): Allocation {
     inAg: hours.map((h, k) => (h > 0 ? (P * alloc[k]) / h : 0)),
     borAg: hours.map((h, k) => (h > 0 ? (Bhome * alloc[k]) / h : 0)),
   }
-  const needV = d.buckets.map((b) => b.needV)
-  const needC = d.buckets.map((b) => b.needC)
+  // staffing follows the service model (Erlang A when chosen); sizing elsewhere stays Erlang C
+  const needV = d.buckets.map((b) => b.sNeedV)
+  const needC = d.buckets.map((b) => b.sNeedC)
   const targetDays = inp.channels.email.targetDays
   // email's need this week: its arrivals plus a quarter of any backlog beyond target (as in required FTE)
   const emailNeed = d.emailArrivalHours + Math.max(0, due - d.emailArrivalHours - targetDays * dailyArr) / 4
@@ -282,8 +304,8 @@ function allocate(a: AllocArgs): Allocation {
       const tVoice = inp.channels.voice.slTarget
       const tChat = inp.channels.chat.slTarget
       const equal = (s: number): [number[], number[], number] => [
-        d.buckets.map((b, k) => (scored.voice ? b.v.need(s * tVoice) : needV[k])),
-        d.buckets.map((b, k) => (scored.chat ? b.c.need(s * tChat) : needC[k])),
+        d.buckets.map((b, k) => (scored.voice ? b.sv.need(s * tVoice) : needV[k])),
+        d.buckets.map((b, k) => (scored.chat ? b.sc.need(s * tChat) : needC[k])),
         scored.email ? (s > 0 ? Math.max(0, due - (targetDays * dailyArr) / s) : 0) : Math.min(due, emailNeed),
       ]
       if (feasible(...equal(0))) {
@@ -369,8 +391,20 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
   const weeks: WeekResult[] = []
   let trace: WeekTrace | undefined
 
+  const svc = inp.service ?? { model: 'C' as const, patience: { voice: 120, chat: 300 }, redialRate: 0, abandonCap: 1 }
+  const useA = svc.model === 'A'
+  // Forecast volumes already contain today's redials, so only abandonment above the week-0 rate
+  // creates extra contacts. They arrive the following week, in proportion to the book still here.
+  let retries = { voice: 0, chat: 0 }
+  let baseAbandon: { voice: number; chat: number } | null = null
+
   for (let w = 0; w < W; w++) {
-    const d = demand[w]
+    const stay = (key: 'voice' | 'chat') => (w > 0 && demand[w - 1].vol[key] > 0 ? Math.min(1, demand[w].vol[key] / demand[w - 1].vol[key]) : 0)
+    const retriesIn = { voice: retries.voice * stay('voice'), chat: retries.chat * stay('chat') }
+    // earlier abandoners who redial add to this week's volume (never under Erlang C: nobody abandons)
+    const d = retriesIn.voice > 0 || retriesIn.chat > 0
+      ? demandWeekFor(inp, { voice: demand[w].vol.voice + retriesIn.voice, chat: demand[w].vol.chat + retriesIn.chat, email: demand[w].vol.email })
+      : demand[w]
     const phase = phaseOf(w, freezeStart, freezeEnd)
     const headsAtStart = H
     const backlogIn = backlog
@@ -436,22 +470,30 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
       const volume = d.vol[key]
       const scored = volume >= SLIVER * base.vol[key] && base.vol[key] > 0
       let sl = 0
+      let ab = 0
       let unstable = false
       let need = 0
       let given = 0
       for (let k = 0; k < 3; k++) {
         const bk = d.buckets[k]
-        const cv = key === 'voice' ? bk.v : bk.c
+        const cv = key === 'voice' ? bk.sv : bk.sc
         const n = ns[k]
-        if (cv.a > 0 && n <= cv.a) unstable = true
+        if (!useA && cv.a > 0 && n <= cv.a) unstable = true // an Erlang C queue with no spare agents never clears
         sl += vs[k] * cv.sl(n)
+        if (useA) ab += vs[k] * cv.abandon(n)
         need += (key === 'voice' ? bk.needV : bk.needC) * hours[k]
         given += n * hours[k]
       }
-      return { volume, scored, sl: scored ? sl : NaN, need, given, unstable: scored && unstable }
+      return {
+        volume, scored, sl: scored ? sl : NaN, need, given, unstable: scored && unstable,
+        abandonRate: scored ? ab : NaN, abandoned: volume * ab, retriesIn: retriesIn[key],
+      }
     }
     const voice = interactive('voice', nV)
     const chat = interactive('chat', nC)
+    baseAbandon ??= { voice: voice.abandonRate || 0, chat: chat.abandonRate || 0 }
+    const extra = (x: InteractiveWeek, r0: number) => Math.max(0, x.abandoned - r0 * x.volume) * svc.redialRate
+    retries = { voice: extra(voice, baseAbandon.voice), chat: extra(chat, baseAbandon.chat) }
 
     const emailScored = d.vol.email >= SLIVER * base.vol.email && base.vol.email > 0
     const backlogDays = dailyArr > 0 ? backlog / dailyArr : 0
@@ -486,7 +528,8 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     const cover = fteReq > 0 ? fteAvail / fteReq : 1
     const clamp = (x: number) => Math.min(1, Math.max(0, x))
     const anyScored = voice.scored || chat.scored || emailScored
-    const score = !anyScored
+    const worstAbandon = Math.max(voice.scored ? voice.abandonRate : 0, chat.scored ? chat.abandonRate : 0)
+    const scoreBeforeCap = !anyScored
       ? NaN // nothing left to serve: migration complete
       :
       (voice.unstable && voice.scored) || (chat.unstable && chat.scored)
@@ -494,6 +537,10 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
         : meetsAll
           ? 0.7 + 0.3 * clamp((cover - 1) / 0.1)
           : 0.7 * clamp((Math.min(worst, 1) - 0.5) / 0.5)
+    // under Erlang A, heavy abandonment caps the grade: above the cap at BBB, above twice it at CCC
+    const score = !useA || !(worstAbandon > svc.abandonCap)
+      ? scoreBeforeCap
+      : Math.min(scoreBeforeCap, worstAbandon > 2 * svc.abandonCap ? 0.39 : 0.69)
 
     if (phase === 'pre') flows.attritionPre += lost
     else if (phase === 'freeze') flows.attritionFreeze += lost
@@ -519,8 +566,8 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
           hourShare: inp.profile.hourShare[k],
           allocShare: alloc[k],
           openHours: hours[k],
-          voice: { offeredErlangs: d.buckets[k].v.a, needAgents: d.buckets[k].needV, targetAgents: A.tV[k], agentsBeforeSpare: nVBefore[k], agentsFinal: nV[k], serviceLevel: d.buckets[k].v.sl(nV[k]) },
-          chat: { offeredErlangs: d.buckets[k].c.a, needAgents: d.buckets[k].needC, targetAgents: A.tC[k], agentsBeforeSpare: nCBefore[k], agentsFinal: nC[k], serviceLevel: d.buckets[k].c.sl(nC[k]) },
+          voice: { offeredErlangs: d.buckets[k].v.a, needAgents: d.buckets[k].sNeedV, sizingNeedAgents: d.buckets[k].needV, targetAgents: A.tV[k], agentsBeforeSpare: nVBefore[k], agentsFinal: nV[k], serviceLevel: d.buckets[k].sv.sl(nV[k]), abandonRate: d.buckets[k].sv.abandon(nV[k]) },
+          chat: { offeredErlangs: d.buckets[k].c.a, needAgents: d.buckets[k].sNeedC, sizingNeedAgents: d.buckets[k].needC, targetAgents: A.tC[k], agentsBeforeSpare: nCBefore[k], agentsFinal: nC[k], serviceLevel: d.buckets[k].sc.sl(nC[k]), abandonRate: d.buckets[k].sc.abandon(nC[k]) },
           inHouseAgentsAvailable: hours[k] > 0 ? (P * alloc[k]) / hours[k] : 0,
           borrowedAgentsAvailable: hours[k] > 0 ? (Bhome * alloc[k]) / hours[k] : 0,
         })),
@@ -534,7 +581,15 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
           fellBackToProrata: A.fellBack, iterations: A.iterations, borrowedHoursByChannel: A.borrowedByChannel, inHouseIdleHours: inIdle,
         },
         required: { bucketBindHours: d.bucketBindHours, interactiveNeedHours: d.interactiveNeedHours, emailArrivalHours: d.emailArrivalHours, excessBacklogHours: excess, requiredHours: hReq, fteRequired: fteReq, fteAvailable: fteAvail },
-        grade: { meetsAll, attainment: { voice: attain[0], chat: attain[1], email: attain[2] }, worstAttainment: worst, cover, unstable: (voice.unstable && voice.scored) || (chat.unstable && chat.scored), score },
+        service: {
+          model: svc.model, patience: svc.patience, redialRate: svc.redialRate, retriesIn,
+          abandoned: { voice: voice.abandoned, chat: chat.abandoned }, retriesOut: retries,
+        },
+        grade: {
+          meetsAll, attainment: { voice: attain[0], chat: attain[1], email: attain[2] }, worstAttainment: worst, cover,
+          unstable: (voice.unstable && voice.scored) || (chat.unstable && chat.scored),
+          worstAbandonRate: worstAbandon, abandonCap: svc.abandonCap, scoreBeforeCap, score,
+        },
       }
     }
 

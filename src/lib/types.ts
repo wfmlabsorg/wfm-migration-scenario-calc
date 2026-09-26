@@ -3,6 +3,14 @@ export type Triple = [number, number, number] // PERT [low, most likely, high]
 export type Channel = 'voice' | 'chat' | 'email'
 export type BalanceMode = 'priority' | 'floor' | 'prorata' | 'equal'
 
+/** How delivered service is computed. Required FTE is always sized with Erlang C. */
+export interface ServiceModel {
+  model: 'A' | 'C' // A: customers abandon after an average patience; C: nobody abandons
+  patience: { voice: number; chat: number } // mean seconds before a waiting customer gives up (Erlang A)
+  redialRate: number // share of abandoned contacts that try again next week (0–1)
+  abandonCap: number // worst voice/chat abandonment above this caps the week at BBB (above 2× at CCC)
+}
+
 /** How a short week's capacity is shared between channels. */
 export interface Balance {
   mode: BalanceMode
@@ -50,6 +58,7 @@ export interface Inputs {
     lookaheadWeeks: number
   }
   balance: Balance
+  service: ServiceModel
   borrowed: {
     fte: number
     startWeek: number
@@ -77,7 +86,10 @@ export interface InteractiveWeek {
   sl: number // NaN when not scored
   need: number // FTE-hours of productive time needed at target
   given: number // productive hours allocated
-  unstable: boolean // allocated agents ≤ offered load in some bucket
+  unstable: boolean // allocated agents ≤ offered load in some bucket (Erlang C only)
+  abandonRate: number // share of offered contacts that give up (0 under Erlang C); NaN when not scored
+  abandoned: number // contacts that gave up this week
+  retriesIn: number // contacts added this week by earlier abandoners redialling
 }
 
 export interface EmailWeek {
@@ -138,15 +150,16 @@ export interface WeekTrace {
     hourShare: number
     allocShare: number
     openHours: number
-    voice: { offeredErlangs: number; needAgents: number; targetAgents: number; agentsBeforeSpare: number; agentsFinal: number; serviceLevel: number }
-    chat: { offeredErlangs: number; needAgents: number; targetAgents: number; agentsBeforeSpare: number; agentsFinal: number; serviceLevel: number }
+    voice: { offeredErlangs: number; needAgents: number; sizingNeedAgents: number; targetAgents: number; agentsBeforeSpare: number; agentsFinal: number; serviceLevel: number; abandonRate: number }
+    chat: { offeredErlangs: number; needAgents: number; sizingNeedAgents: number; targetAgents: number; agentsBeforeSpare: number; agentsFinal: number; serviceLevel: number; abandonRate: number }
     inHouseAgentsAvailable: number
     borrowedAgentsAvailable: number
   }[]
   email: { arrivalHours: number; backlogIn: number; need: number; floorHours: number; targetHours: number; workedBeforeTopUp: number; topUpHours: number; capacityHours: number; workedHours: number; backlogOut: number; dailyArrivalHours: number; backlogDays: number; targetDays: number; timeliness: number }
   balance: { mode: BalanceMode; order: Channel[]; emailFloor: number; ratio: number | null; attainment: number | null; fellBackToProrata: boolean; iterations: number; borrowedHoursByChannel: { voice: number; chat: number; email: number }; inHouseIdleHours: number }
   required: { bucketBindHours: number; interactiveNeedHours: number; emailArrivalHours: number; excessBacklogHours: number; requiredHours: number; fteRequired: number; fteAvailable: number }
-  grade: { meetsAll: boolean; attainment: { voice: number; chat: number; email: number }; worstAttainment: number; cover: number; unstable: boolean; score: number }
+  service: { model: 'A' | 'C'; patience: { voice: number; chat: number }; redialRate: number; retriesIn: { voice: number; chat: number }; abandoned: { voice: number; chat: number }; retriesOut: { voice: number; chat: number } }
+  grade: { meetsAll: boolean; attainment: { voice: number; chat: number; email: number }; worstAttainment: number; cover: number; unstable: boolean; worstAbandonRate: number; abandonCap: number; scoreBeforeCap: number; score: number }
 }
 
 export interface RunResult {

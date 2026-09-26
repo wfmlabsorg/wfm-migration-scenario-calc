@@ -123,6 +123,7 @@ export interface WeekResult {
   chat: InteractiveWeek
   email: EmailWeek
   meetsAll: boolean
+  cappedByAbandonment: boolean // Erlang A: the abandonment cap lowered this week's grade
   score: number // 0–1, feeds the AAA–D- grade
 }
 

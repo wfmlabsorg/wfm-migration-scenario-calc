@@ -614,6 +614,7 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
       chat,
       email,
       meetsAll,
+      cappedByAbandonment: score < scoreBeforeCap,
       score,
     })
   }

@@ -37,7 +37,7 @@ export function kpis(inp: Inputs, r: RunResult): Kpis {
   }
   const peak = (ch: 'voice' | 'chat') =>
     r.weeks.reduce((a, w) => (w[ch].scored && w[ch].abandonRate > a.rate ? { rate: w[ch].abandonRate, week: w.week } : a), { rate: 0, week: 0 })
-  const capped = !!worst && inp.service?.model === 'A' && Math.max(worst.voice.scored ? worst.voice.abandonRate : 0, worst.chat.scored ? worst.chat.abandonRate : 0) > inp.service.abandonCap
+  const capped = !!worst && worst.cappedByAbandonment
   const gap = r.weeks.reduce((a, w) => (w.fteReq - w.fteAvail > a.fteReq - a.fteAvail ? w : a), r.weeks[0])
   return {
     worstWeek: worst?.week ?? null,

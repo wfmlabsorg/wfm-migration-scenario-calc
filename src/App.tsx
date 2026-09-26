@@ -355,7 +355,7 @@ export default function App() {
                   <p className="text-[10px] text-gray-400 uppercase tracking-wider">Worst week · W{s.worst.week}</p>
                   <p className="text-3xl font-bold" style={{ color: worstGrade.color }}>{worstGrade.grade}</p>
                   <p className="text-[10px] text-gray-400">{worstGrade.rating} · {s.worstChannel}</p>
-                  {inputs.service.model === 'A' && s.worst && Math.max(s.worst.voice.scored ? s.worst.voice.abandonRate : 0, s.worst.chat.scored ? s.worst.chat.abandonRate : 0) > inputs.service.abandonCap && (
+                  {s.worst?.cappedByAbandonment && (
                     <p className="text-[10px] text-amber-300">Capped by abandonment</p>
                   )}
                 </div>

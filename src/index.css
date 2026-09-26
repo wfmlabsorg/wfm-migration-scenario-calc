@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background-color: #0b1120;
+  color: #f1f5f9;
+  margin: 0;
+}
+
+code, pre, .font-mono {
+  font-family: 'IBM Plex Mono', 'Fira Code', monospace;
+}
+
+/* Range slider */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: #374151;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #22d3ee;
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.4);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #22d3ee;
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.4);
+}
+
+input[type="number"] {
+  background: #0f1724;
+  border: 1px solid #374151;
+  color: #f3f4f6;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 14px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+input[type="number"]:focus {
+  outline: none;
+  border-color: #22d3ee;
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.25);
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #111827; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+/* Mission Control dark mode */
+.dark body, html.dark body { background-color: #0b1120; color: #f1f5f9; }
+.dark .bg-gray-50 { background-color: #0b1120; }
+.dark .bg-white { background-color: #111927; }
+.dark .bg-gray-100 { background-color: #0f1729; }
+.dark .text-gray-900 { color: #f1f5f9; }
+.dark .text-gray-800 { color: #e2e8f0; }
+.dark .text-gray-700 { color: #cbd5e1; }
+.dark .text-gray-600 { color: #94a3b8; }
+.dark .text-gray-500 { color: #64748b; }
+.dark .border-gray-200 { border-color: #1e293b; }
+.dark .border-gray-300 { border-color: #334155; }
+.dark .shadow-lg, .dark .shadow-md, .dark .shadow-sm, .dark .shadow { box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+.dark input, .dark select { background-color: #1e293b; border-color: #334155; color: #f1f5f9; }
+.dark .bg-blue-600 { background-color: #0891b2; }
+.dark .text-blue-600 { color: #22d3ee; }
+.dark .bg-blue-50, .dark .bg-green-50, .dark .bg-cyan-50, .dark .bg-red-50 { background-color: rgba(34,211,238,0.06); }
+

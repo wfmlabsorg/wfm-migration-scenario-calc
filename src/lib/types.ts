@@ -1,5 +1,15 @@
 export type Triple = [number, number, number] // PERT [low, most likely, high]
 
+export type Channel = 'voice' | 'chat' | 'email'
+export type BalanceMode = 'priority' | 'floor' | 'prorata' | 'equal'
+
+/** How a short week's capacity is shared between channels. */
+export interface Balance {
+  mode: BalanceMode
+  order: Channel[] // priority order (priority mode; floor mode uses it without email)
+  emailFloor: number // floor mode: share of this week's email arrival hours guaranteed first (0–1)
+}
+
 export interface Wave {
   weeksAfterFreeze: number // cutover week, counted from the end of the freeze
   pct: number // 0–1 share of the book moved out (and the same share of staff); waves summing to 1 = fully migrated
@@ -39,6 +49,7 @@ export interface Inputs {
     releaseBuffer: number
     lookaheadWeeks: number
   }
+  balance: Balance
   borrowed: {
     fte: number
     startWeek: number
@@ -92,6 +103,7 @@ export interface WeekResult {
   prodHours: number // in-house productive hours after shrink, surge and training
   borrowedUsedHours: number
   borrowedIdleHours: number
+  inHouseIdleHours: number // productive hours with nothing to do (no voice/chat need in a bucket, email clear)
   fteAvail: number
   fteReq: number
   utilisation: number
@@ -113,7 +125,32 @@ export interface Flows {
   end: number
 }
 
+/** Every intermediate the engine computed for one week (RunOptions.traceWeek). */
+export interface WeekTrace {
+  week: number
+  phase: Phase
+  headcount: { start: number; moved: number; attritionRate: number; attritionMultiplier: number; lost: number; hired: number; released: number; end: number }
+  hours: { paidHoursPerHead: number; shrinkage: number; surgePts: number; effectiveShrinkage: number; grossProductive: number; trainingHours: number; productive: number }
+  borrowed: { active: boolean; fte: number; ahtPenalty: number; homeEquivalentHours: number; usedHours: number; idleHours: number }
+  buckets: {
+    name: string
+    volumeShare: number
+    hourShare: number
+    allocShare: number
+    openHours: number
+    voice: { offeredErlangs: number; needAgents: number; targetAgents: number; agentsBeforeSpare: number; agentsFinal: number; serviceLevel: number }
+    chat: { offeredErlangs: number; needAgents: number; targetAgents: number; agentsBeforeSpare: number; agentsFinal: number; serviceLevel: number }
+    inHouseAgentsAvailable: number
+    borrowedAgentsAvailable: number
+  }[]
+  email: { arrivalHours: number; backlogIn: number; need: number; floorHours: number; targetHours: number; workedBeforeTopUp: number; topUpHours: number; capacityHours: number; workedHours: number; backlogOut: number; dailyArrivalHours: number; backlogDays: number; targetDays: number; timeliness: number }
+  balance: { mode: BalanceMode; order: Channel[]; emailFloor: number; ratio: number | null; attainment: number | null; fellBackToProrata: boolean; iterations: number; borrowedHoursByChannel: { voice: number; chat: number; email: number }; inHouseIdleHours: number }
+  required: { bucketBindHours: number; interactiveNeedHours: number; emailArrivalHours: number; excessBacklogHours: number; requiredHours: number; fteRequired: number; fteAvailable: number }
+  grade: { meetsAll: boolean; attainment: { voice: number; chat: number; email: number }; worstAttainment: number; cover: number; unstable: boolean; score: number }
+}
+
 export interface RunResult {
+  trace?: WeekTrace
   weeks: WeekResult[]
   flows: Flows
   emailBacklogMovedHours: number // email backlog that left with the waves

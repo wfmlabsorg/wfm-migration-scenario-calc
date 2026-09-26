@@ -1,14 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import AgentPanel from './components/agent/AgentPanel'
 import { CapacityChart, ServiceChart } from './components/charts/Charts'
 import NumberInput from './components/inputs/NumberInput'
 import SliderInput from './components/inputs/SliderInput'
+import BalanceCard from './components/inputs/BalanceCard'
 import ResultCard from './components/results/ResultCard'
 import { download, toCsv } from './lib/csv'
+import { dossier } from './lib/dossier'
 import { cloneDefaults } from './lib/defaults'
 import { run } from './lib/engine'
 import { getGradeTable, scoreToGrade } from './lib/grade'
 import type { McBands } from './lib/montecarlo'
-import { decode, encode } from './lib/share'
+import { commitOf, decode, toHash } from './lib/share'
+import { codeUrl, COMMIT, ENGINE_VERSION, REPO, SHORT } from './lib/version'
 import type { Inputs, RunResult, Triple } from './lib/types'
 
 const WIKI_ARTICLE = 'https://wiki.wfmlabs.org/wiki/Service_Level_During_Work_Migration'
@@ -85,6 +89,15 @@ export default function App() {
   const [showTable, setShowTable] = useState(false)
   const [copied, setCopied] = useState(false)
   const workerRef = useRef<Worker | null>(null)
+  const [showAgent, setShowAgent] = useState(false)
+  const [undo, setUndo] = useState<{ prev: Inputs; label: string } | null>(null)
+  const [linkCommit] = useState(() => commitOf(window.location.hash))
+  const inputsRef = useRef(inputs)
+  inputsRef.current = inputs
+  const onAgentApply = useCallback((next: Inputs, label: string) => {
+    setUndo({ prev: inputsRef.current, label })
+    setInputs(next)
+  }, [])
   const genRef = useRef(0)
 
   const set = (mutate: (i: Inputs) => void) =>
@@ -100,7 +113,7 @@ export default function App() {
 
   // keep the URL in step with the scenario (debounced)
   useEffect(() => {
-    const t = setTimeout(() => history.replaceState(null, '', `#s=${encode(inputs)}`), 300)
+    const t = setTimeout(() => history.replaceState(null, '', `#${toHash(inputs)}`), 300)
     return () => clearTimeout(t)
   }, [inputs])
 
@@ -134,7 +147,7 @@ export default function App() {
   const ch = inputs.channels
 
   const copyLink = async () => {
-    const url = `${location.origin}${location.pathname}#s=${encode(inputs)}`
+    const url = `${location.origin}${location.pathname}#${toHash(inputs)}`
     try {
       await navigator.clipboard.writeText(url)
       setCopied(true)
@@ -169,6 +182,7 @@ export default function App() {
                 <p className="text-sm font-bold" style={{ color: mcGrade.color }}>{mcGrade.grade}</p>
               </div>
             )}
+            <button onClick={() => setShowAgent(true)} className="text-xs px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-400 text-white font-semibold">Ask the analyst</button>
             <button onClick={() => setShowInfo(true)} className="ml-1 w-6 h-6 rounded-full border border-gray-600 text-gray-500 hover:text-brand-400 hover:border-brand-400 transition-colors text-xs font-bold flex items-center justify-center" title="How it works">?</button>
           </div>
         </div>
@@ -269,6 +283,10 @@ export default function App() {
               )}
             </Card>
 
+            <Card title="Channel balancing">
+              <BalanceCard value={inputs.balance} onChange={(v) => set((i) => { i.balance = v })} />
+            </Card>
+
             <Card title="Borrowed capacity">
               <NumberInput label="Borrowed FTE" value={inputs.borrowed.fte} step={1} min={0} onChange={(v) => set((i) => { i.borrowed.fte = Math.max(0, v) })} />
               <div className="grid grid-cols-3 gap-2">
@@ -305,6 +323,21 @@ export default function App() {
 
           {/* ═══════ Results ═══════ */}
           <div className="lg:col-span-9 space-y-4 lg:sticky lg:top-14 lg:self-start lg:max-h-[calc(100vh-4.5rem)] lg:overflow-y-auto lg:pr-1">
+            {linkCommit && linkCommit !== SHORT && linkCommit !== 'unknown' && SHORT !== 'unknown' && (
+              <div className="text-[11px] text-sky-200 bg-sky-500/10 border border-sky-500/30 rounded px-3 py-1.5">
+                This link was made with engine commit <code>{linkCommit}</code>; you are on <code>{SHORT}</code>, so results may differ slightly.{' '}
+                <a className="underline" href={codeUrl(linkCommit)} target="_blank" rel="noreferrer">View that version’s code on GitHub</a>
+              </div>
+            )}
+            {undo && (
+              <div className="text-[11px] text-emerald-200 bg-emerald-500/10 border border-emerald-500/30 rounded px-3 py-1.5 flex items-center justify-between gap-2">
+                <span>The analyst put scenario “{undo.label}” on screen.</span>
+                <span className="flex gap-3">
+                  <button className="underline" onClick={() => { setInputs(undo.prev); setUndo(null) }}>Undo</button>
+                  <button className="text-emerald-300/70" onClick={() => setUndo(null)}>Keep</button>
+                </span>
+              </div>
+            )}
             {result.warnings.map((w) => (
               <div key={w} className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-1.5">{w}</div>
             ))}
@@ -356,6 +389,7 @@ export default function App() {
                 </>
               )}
               <button onClick={copyLink} className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white">{copied ? 'Link copied' : 'Copy share link'}</button>
+              <button onClick={() => download('scenario-dossier.md', dossier(inputs, result, location.href))} className="text-xs px-3 py-1.5 rounded border border-brand-500/50 text-brand-400 hover:bg-brand-500/10" title="Assumptions, approach, equations, worked example and weekly results in one Markdown file, ready for Claude">Export scenario</button>
               <button onClick={() => download('migration-scenario.csv', toCsv(result))} className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white">Export CSV</button>
               <button onClick={() => setShowTable(!showTable)} className="text-xs px-3 py-1.5 rounded border border-card-border text-gray-300 hover:text-white">{showTable ? 'Hide' : 'Show'} weekly table</button>
             </div>
@@ -398,8 +432,11 @@ export default function App() {
 
         <div className="mt-6 pt-3 border-t border-card-border text-center">
           <p className="text-[9px] text-gray-600">WFM Labs calculators are for demonstration purposes only. <a href="https://wfmlabs.com" className="text-brand-500 hover:text-brand-400">wfmlabs.com</a></p>
+          <p className="text-[9px] text-gray-600 mt-1">Engine v{ENGINE_VERSION} · commit <a className="text-brand-500 hover:text-brand-400" href={codeUrl(COMMIT)} target="_blank" rel="noreferrer">{SHORT}</a> · <a className="text-brand-500 hover:text-brand-400" href={REPO} target="_blank" rel="noreferrer">source on GitHub</a></p>
         </div>
       </main>
+
+      <AgentPanel open={showAgent} onClose={() => setShowAgent(false)} inputs={inputs} result={result} onApply={onAgentApply} />
 
       {showInfo && (
         <div className="fixed inset-0 z-40 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowInfo(false)}>

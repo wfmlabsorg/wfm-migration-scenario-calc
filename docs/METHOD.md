@@ -111,15 +111,31 @@ The grades use the same AAA–D- scale and colours as the Risk-Rated Capacity Pl
 
 ## Uncertainty
 
-When uncertainty is on, each future draws these from PERT ranges:
-- freeze length
-- the tension effect
-- the post-announcement attrition effect
-- the absence surge
-- the runoff rate
+Uncertainty comes from the **assumption register**. The tool asks about 19 generic questions
+(timing, people, demand, service); each answer sets one or more inputs and carries a range
+(low, likely, high) and a status:
 
-Attrition is drawn binomially. The random numbers are seeded, so scenario A and scenario B see
-the same futures and differences between them come from the inputs. The chart's line always
+| Status | Range |
+|---|---|
+| Not asked | A deliberately wide generic range around the current value |
+| Estimated | The range someone gave ("about 4 months, could be 6" → 13 / 17 / 26 weeks) |
+| Confirmed | A point, or a narrow range if one was given |
+
+When uncertainty is on, each future draws **every** register entry that has a range from PERT
+(low, likely, high), and attrition binomially. Each input has its own seeded random stream, so
+answering one question does not reshuffle the others, and scenario A and B see the same futures.
+The chart header reports the **average band width** (mean 90th − 10th percentile over scored
+weeks and channels) and its previous value, so each answer shows how much it narrowed the
+forecast. Binomial attrition is real process noise, so the bands never reach zero. In the
+simulation only, offered loads are rounded to 3 significant figures so Erlang curves are reused.
+
+A project can add its own questions (for example, questions put to the owner of a planning
+workbook) that map to the same inputs.
+
+**Shape cards** carry a scenario without its scale: timing, rates, ratios, handle times, the
+register and project questions, with week-0 cover and the workload mix instead of volumes and
+headcount. The Claude Desktop pack exports one; the tool rebuilds volumes for a chosen team size
+so that cover and mix match. Queue economics depend on size, so pick a size near the real one. The chart's line always
 shows the most-likely inputs; it is not the median of the futures.
 
 ## Limits

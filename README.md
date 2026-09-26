@@ -23,14 +23,15 @@ staff leave before the work does. A headcount waterfall can't show that; this ca
 | Service model | Erlang A (default: patience per channel, redial share, abandonment cap on the grade) or Erlang C (no abandonment); optional Erlang C overlay |
 | Channel balancing | Strict priority (reorderable), protect email, share the shortfall, equal attainment |
 | Borrowed capacity | FTE, weeks, AHT penalty, which channels it can handle |
-| Uncertainty | Optional Monte Carlo over freeze length, the attrition effects, the absence surge and runoff |
+| Assumptions | A register of ~19 generic questions (plus project questions): each answer is a range with a status (not asked / estimated / confirmed); the Monte Carlo draws every range, so answers narrow the bands |
+| Shape cards | Import or export a scenario without its scale (cover and workload mix instead of volumes and headcount), e.g. from the Claude Desktop pack |
 
 ## What you get
 
 - Service level per channel per week against target, with the freeze and waves marked, and abandonment under Erlang A
 - Available against required FTE, and headcount
 - A grade per week on the same AAA–D- scale as the WFM Labs Risk-Rated Capacity Planner
-- With uncertainty on: 10th–90th percentile bands and the share of futures that never breach
+- With uncertainty on: 10th–90th percentile bands, the share of futures that never breach, and the average band width with its previous value (how much the last answers narrowed the forecast)
 - Scenario A/B overlay, a share link that reproduces the scenario, CSV export
 
 ## Ask the analyst
@@ -99,7 +100,7 @@ Background reading on the WFM Labs wiki:
 ```bash
 bun install
 bun run dev      # local development
-bun test         # 168 tests: Erlang C/A reference values (Erlang A against an event
+bun test         # 186 tests: Erlang C/A reference values (Erlang A against an event
                  # simulation), invariants, balancing policies, Monte Carlo,
                  # analyst tools, relay rules, quotas, export, no-secrets guard
 bun run build    # production build to dist/

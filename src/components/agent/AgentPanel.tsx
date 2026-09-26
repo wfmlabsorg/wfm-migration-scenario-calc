@@ -92,6 +92,7 @@ export default function AgentPanel({ open, onClose, inputs, result, onApply }: P
     // one user entry, then one assistant entry that accumulates text and tool calls across rounds
     setChat((c) => [...c, { role: 'user', text: q, tools: [] }, { role: 'assistant', text: '', tools: [], parts: [] }])
     const patch = (f: (e: ChatEntry) => ChatEntry) => setChat((c) => [...c.slice(0, -1), f(c[c.length - 1])])
+    let turnStart: ChatEntry | null = null // snapshot of the answer before the current model turn
     try {
       await ask(history.current, q, tools, {
         signal: ac.signal,
@@ -106,6 +107,8 @@ export default function AgentPanel({ open, onClose, inputs, result, onApply }: P
         onTool: (t) => patch((e) => ({ ...e, tools: [...e.tools, t], text: e.text ? `${e.text}\n\n` : e.text, parts: [...(e.parts ?? []), { kind: 'tool', tool: t }] })),
         onAssistant: () => undefined,
         onBudget: setBudget,
+        onTurnStart: () => setChat((c) => { turnStart = c[c.length - 1]; return c }),
+        onRetry: () => patch((e) => turnStart ?? e),
       })
     } catch (e) {
       if ((e as Error).name === 'AbortError') setError('Stopped.')

@@ -18,6 +18,8 @@ export interface TurnCallbacks {
   onTool: (ev: ToolEvent) => void
   onAssistant: (content: Anthropic.ContentBlock[]) => void
   onBudget?: (remainingUsd: number) => void
+  onTurnStart?: () => void // a model turn is about to stream
+  onRetry?: () => void // that turn failed on the network and will be re-issued: discard its partial text
   signal?: AbortSignal
 }
 
@@ -49,6 +51,29 @@ async function postTurn(messages: Anthropic.MessageParam[], signal?: AbortSignal
   return res
 }
 
+const RETRIES = 2
+
+/** One model turn. Network drops (Wi-Fi changes, VPNs) re-issue the same turn; the history is
+ *  unchanged until a turn completes, so a retry is exact. Refusals, caps and Stop are not retried. */
+async function streamTurnWithRetry(history: Anthropic.MessageParam[], cb: TurnCallbacks): Promise<Anthropic.Message> {
+  for (let attempt = 0; ; attempt++) {
+    cb.onTurnStart?.()
+    try {
+      const res = await postTurn(history, cb.signal)
+      const budget = Number(res.headers.get('x-analyst-budget-remaining'))
+      if (Number.isFinite(budget)) cb.onBudget?.(budget)
+      const stream = MessageStream.fromReadableStream(res.body!)
+      stream.on('text', (d) => cb.onText(d))
+      return await stream.finalMessage()
+    } catch (e) {
+      const aborted = cb.signal?.aborted || (e as Error).name === 'AbortError'
+      if (e instanceof AgentError || aborted || attempt >= RETRIES) throw e
+      cb.onRetry?.()
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)))
+    }
+  }
+}
+
 /**
  * Runs one user question to completion. `history` is mutated append-only: assistant content is
  * echoed back exactly as received (thinking blocks included).
@@ -56,13 +81,7 @@ async function postTurn(messages: Anthropic.MessageParam[], signal?: AbortSignal
 export async function ask(history: Anthropic.MessageParam[], question: string, tools: AgentTools, cb: TurnCallbacks): Promise<void> {
   history.push({ role: 'user', content: question })
   for (let round = 0; round <= LIMITS.maxToolRounds; round++) {
-    const res = await postTurn(history, cb.signal)
-    const budget = Number(res.headers.get('x-analyst-budget-remaining'))
-    if (Number.isFinite(budget)) cb.onBudget?.(budget)
-
-    const stream = MessageStream.fromReadableStream(res.body!)
-    stream.on('text', (d) => cb.onText(d))
-    const msg = await stream.finalMessage()
+    const msg = await streamTurnWithRetry(history, cb)
     history.push({ role: 'assistant', content: msg.content })
     cb.onAssistant(msg.content)
 

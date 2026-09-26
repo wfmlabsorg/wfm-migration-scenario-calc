@@ -1,6 +1,8 @@
 // Scenario <-> URL hash, so a copied link reproduces the scenario exactly.
+// Links also record the engine commit (v=), so a scenario can be traced to the code that produced it.
 import { DEFAULTS } from './defaults'
 import type { Inputs } from './types'
+import { SHORT } from './version'
 
 function merge<T>(base: T, patch: unknown): T {
   if (Array.isArray(base) || typeof base !== 'object' || base === null) return (patch ?? base) as T
@@ -17,10 +19,23 @@ export function encode(inputs: Inputs): string {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
+/** Full hash fragment for a scenario: `s=<scenario>&v=<commit>`. */
+export function toHash(inputs: Inputs, commit = SHORT): string {
+  return `s=${encode(inputs)}&v=${commit}`
+}
+
+/** Engine commit recorded in a hash, or null for links made before versioning. */
+export function commitOf(hash: string): string | null {
+  const m = /(?:^#?|&)v=([0-9a-f]{7,40}|unknown)/.exec(hash)
+  return m ? m[1] : null
+}
+
 /** Decodes a hash; unknown keys are ignored and missing ones take defaults, so old links keep working. */
 export function decode(hash: string): Inputs | null {
   try {
-    const s = hash.replace(/^#?s=/, '').replace(/-/g, '+').replace(/_/g, '/')
+    const m = /(?:^#?|&)s=([A-Za-z0-9_-]+)/.exec(hash)
+    if (!m) return null
+    const s = m[1].replace(/-/g, '+').replace(/_/g, '/')
     const bin = atob(s + '='.repeat((4 - (s.length % 4)) % 4))
     const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0))
     return merge(structuredClone(DEFAULTS), JSON.parse(new TextDecoder().decode(bytes)))

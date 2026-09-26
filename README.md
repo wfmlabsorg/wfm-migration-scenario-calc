@@ -31,6 +31,28 @@ staff leave before the work does. A headcount waterfall can't show that; this ca
 - With uncertainty on: 10th–90th percentile bands and the share of futures that never breach
 - Scenario A/B overlay, a share link that reproduces the scenario, CSV export
 
+## Ask the analyst
+
+The **Ask the analyst** panel is an AI analyst (Claude Sonnet 5) that answers "why" and "what if" questions by **running the engine**, not by guessing:
+- It reads the scenario on screen.
+- It runs variations without touching the screen.
+- It sweeps a lever to find how much is needed.
+- It runs Monte Carlo on request.
+- It explains any week with the engine's own arithmetic: headcount, productive hours, per-bucket Erlang loads, the email backlog and the grade.
+
+Every tool call appears as an expandable step, so the maths is visible. A conversation can be exported as Markdown together with its scenario link and the exact engine commit.
+
+**How it runs:**
+- The tools execute in your browser against the same engine as the page.
+- A small server function (`netlify/functions/agent.mts`) relays one model turn at a time. It holds the API key and fixes the model, instructions and tools.
+- It enforces per-visitor rate limits and a global daily spend cap. When the cap is reached, the analyst pauses and the calculator keeps working.
+
+**Self-hosting:** set `ANTHROPIC_API_KEY` as a secret, functions-scoped environment variable on your Netlify site. Keys never belong in the repo, and anything not prefixed `VITE_` is never bundled into the page. `tests/export.test.ts` fails the build if key material appears in the source or build output.
+
+## Versioned links
+
+Share links and exports record the engine commit (`&v=<sha>`). The footer links to the exact code on GitHub, and a link made with a different commit shows a notice with a link to that version's source.
+
 ## How it works
 
 One blended team serves **Voice first, then Chat, and Email from whatever is left**, carrying
@@ -48,7 +70,8 @@ Background reading on the WFM Labs wiki:
 ```bash
 bun install
 bun run dev      # local development
-bun test         # 37 tests: Erlang reference values, invariants, priority, Monte Carlo
+bun test         # 59 tests: Erlang reference values, invariants, priority, Monte Carlo,
+                 # analyst tools, relay rules, quotas, export, no-secrets guard
 bun run build    # production build to dist/
 ```
 
@@ -56,7 +79,8 @@ Everything runs in the browser; no data leaves the page. Deploys to Netlify from
 
 ## Customise
 
-- **Demo scenario:** `src/lib/defaults.ts` (a synthetic 120-FTE team)
+- **Demo scenario:** `src/lib/defaults.ts` (a synthetic 260-FTE team shaped like a typical country-exit migration)
+- **Analyst:** tools in `src/agent/toolDefs.ts` + `src/agent/tools.ts`; instructions in `src/agent/systemPrompt.ts`; limits and pricing in `src/agent/relay.ts`
 - **Grading:** `src/lib/grade.ts`
 - **Channel priority or allocation rules:** `src/lib/engine.ts` (the allocation block is commented)
 - **Uncertain inputs:** `src/lib/montecarlo.ts`

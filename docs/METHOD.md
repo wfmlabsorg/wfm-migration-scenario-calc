@@ -44,6 +44,42 @@ Each run has two passes.
 Headcount always balances exactly:
 `start + hired = attrition (pre + freeze + post) + moved + released + end`.
 
+### The team split at the announcement (optional)
+
+With **Split the team at announcement** on, the team divides at the freeze end into a
+**transfer group** T = H × τ and a **release group** R = H − T, where τ is the share of the
+current book that the remaining waves will move (in book mode, the book's own τ). The two groups
+then have their own post-announcement attrition multipliers (transferees keep a job and leave
+less; the release group has an end date and leaves more), and a **retention offer** can cut the
+leaving of one group by a share. Waves and training draw on T only; releases come from R only.
+With equal multipliers, no offer and waves summing to 100% the split reproduces the single stock
+exactly; when the waves sum to less, the release group carries the non-transferring work and its
+attrition. Attrition after the announcement is reported by group.
+
+### The book of business (optional)
+
+**Book mode** replaces hand-typed runoff, step-downs and waves with a description of the book
+in shares, so client offboarding can be modelled *before* any exit is decided:
+
+| Input | Sets |
+|---|---|
+| Contract mix: fixed-term · rolling · rolling with a convenience clause | how and when a client can leave before its wave |
+| Fixed-term expiry window (weeks) | when un-renewed fixed-term work leaves, whatever the waves |
+| Health mix: green · amber · red | the odds of each fate |
+| Fate probabilities by health (transfer, exit, re-platform) | defaults from the desktop pack |
+| Exit notice after the announcement (rolling; with clause) | an exit that lands on or after the client's wave transfers instead (the late-exit rule) |
+| Re-platform timing | re-platformed work leaves without moving staff (capped at the wave) |
+| Waves as shares of the transferring work; wave slip | the transfer schedule and how much it may drift |
+
+The on-screen line is the **expected** departure curve, computed in closed form from the PERT and
+uniform week distributions (no random numbers), with staff moves derived from the transferring
+work. The Monte Carlo draws **real staircases**: each future samples K client-equivalents with
+their own cell, fate, wave and departure week, plus one wave slip, so the bands carry the
+book's uncertainty, not just the team's. The tool shows the **implied fate shares** and the
+transfer share at the announcement so two descriptions that collapse to the same curve are
+visibly the same. Book mode and manual mode are a switch, never a blend, so nothing is removed
+twice.
+
 ## Allocation within the blended team
 
 Within each bucket:
@@ -136,6 +172,10 @@ simulation only, offered loads are rounded to 3 significant figures so Erlang cu
 
 A project can add its own questions (for example, questions put to the owner of a planning
 workbook) that map to the same inputs.
+
+Inputs outside the scenario's mode are neither drawn nor counted: the transfer/release
+multipliers only when the split is on, the book's mixes only in book mode. In book mode the
+simulation also draws the departure staircase itself (see *The book of business*).
 
 **Shape cards** carry a scenario without its scale: timing, rates, ratios, handle times, the
 register and project questions, with week-0 cover and the workload mix instead of volumes and

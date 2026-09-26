@@ -6,6 +6,7 @@ import SliderInput from './components/inputs/SliderInput'
 import BalanceCard from './components/inputs/BalanceCard'
 import ServiceModelCard from './components/inputs/ServiceModelCard'
 import AssumptionsCard from './components/inputs/AssumptionsCard'
+import BookCard from './components/inputs/BookCard'
 import { syncRegister } from './lib/register'
 import { cardWarnings, fromShapeCard, toShapeCard } from './lib/shapeCard'
 import ResultCard from './components/results/ResultCard'
@@ -263,7 +264,8 @@ export default function App() {
               <Toggle label="Backfill leavers before the freeze" checked={inputs.freeze.backfillBefore} onChange={(v) => set((i) => { i.freeze.backfillBefore = v })} hint="During and after the freeze nobody is replaced; no work is moved until it ends." />
             </Card>
 
-            <Card title="Demand">
+            <Card title="Demand" right={inputs.book.mode === 'book' ? <span className="text-[10px] text-amber-300">Ignored in book mode</span> : undefined}>
+              <div className={inputs.book.mode === 'book' ? 'opacity-40 pointer-events-none' : ''} aria-disabled={inputs.book.mode === 'book'}>
               <SliderInput label="Natural runoff (per week)" value={inputs.demand.runoffPctWeek} min={0} max={0.05} step={0.001} format="percent" onChange={(v) => set((i) => { i.demand.runoffPctWeek = v })} />
               <NumberInput label="Runoff starts week (blank = freeze start)" value={inputs.demand.runoffStartWeek ?? inputs.freeze.startWeek} step={1} min={0} onChange={(v) => set((i) => { i.demand.runoffStartWeek = Math.max(0, Math.round(v)) })} />
               <Toggle label="Taking on new demand" checked={inputs.demand.intakeOn} onChange={(v) => set((i) => { i.demand.intakeOn = v })} hint="On: new work replaces what runs off, at the rate below." />
@@ -277,15 +279,43 @@ export default function App() {
                 </div>
               ))}
               <button className="text-[11px] text-brand-400 hover:text-brand-300 min-h-8 px-1" onClick={() => set((i) => { i.demand.stepDowns.push({ week: i.freeze.startWeek + 4, pct: 0.1 }) })}>+ Add step-down</button>
+              </div>
+              {inputs.book.mode === 'book' && <p className="text-[10px] text-amber-300 mt-2">Ignored in book mode: the departure curve comes from the "Book of business" card. Add known dated exits there as fixed-term share.</p>}
+            </Card>
+
+            <Card title="Book of business">
+              <BookCard inputs={inputs} set={set} />
             </Card>
 
             <Card title="After the freeze">
-              <SliderInput label="Attrition after announcement" value={inputs.attrition.postMult} min={1} max={6} step={0.1} format="multiplier" onChange={(v) => set((i) => { i.attrition.postMult = v })} />
+              <Toggle label="Split the team at the announcement" checked={inputs.people.split} onChange={(v) => set((i) => { i.people.split = v })}
+                hint="Staff due to transfer and staff facing release leave at different rates; waves and training draw on the transfer group, releases on the release group." />
+              {inputs.people.split ? (
+                <>
+                  <SliderInput label="Attrition after announcement, transfer group" value={inputs.people.postMultTransfer} min={1} max={6} step={0.1} format="multiplier" onChange={(v) => set((i) => { i.people.postMultTransfer = v })} />
+                  <SliderInput label="Attrition after announcement, release group" value={inputs.people.postMultRelease} min={1} max={8} step={0.1} format="multiplier" onChange={(v) => set((i) => { i.people.postMultRelease = v })} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <NumberInput label="Retention offer cuts leaving by %" value={Math.round(inputs.people.retentionEffect * 100)} step={5} min={0} max={100} onChange={(v) => set((i) => { i.people.retentionEffect = Math.min(1, Math.max(0, v / 100)) })} />
+                    <div className="mb-3">
+                      <label className="block text-xs font-medium text-gray-300 mb-1">…aimed at</label>
+                      <select aria-label="Retention target" value={inputs.people.retentionTarget} onChange={(e) => set((i) => { i.people.retentionTarget = e.target.value as Inputs['people']['retentionTarget'] })}
+                        className="w-full bg-[#0f1724] border border-card-border rounded px-2 py-1.5 text-sm text-gray-200 min-h-8">
+                        <option value="release">the release group</option>
+                        <option value="transfer">the transfer group</option>
+                        <option value="both">both groups</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <SliderInput label="Attrition after announcement" value={inputs.attrition.postMult} min={1} max={6} step={0.1} format="multiplier" onChange={(v) => set((i) => { i.attrition.postMult = v })} />
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <NumberInput label="Absence surge (pts)" value={Math.round(inputs.after.surgePts * 100)} step={1} min={0} max={30} onChange={(v) => set((i) => { i.after.surgePts = Math.max(0, v / 100) })} />
                 <NumberInput label="…for weeks" value={inputs.after.surgeWeeks} step={1} min={0} onChange={(v) => set((i) => { i.after.surgeWeeks = Math.max(0, Math.round(v)) })} />
               </div>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Waves out (share of the book; 100% = fully moved)</p>
+              <div className={inputs.book.mode === 'book' ? 'opacity-40 pointer-events-none' : ''} aria-disabled={inputs.book.mode === 'book'}>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Waves out (share of the book; 100% = fully moved){inputs.book.mode === 'book' ? ' — ignored in book mode' : ''}</p>
               {inputs.after.waves.map((wv, k) => (
                 <div key={k} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
                   <NumberInput label="Weeks after freeze" value={wv.weeksAfterFreeze} step={1} min={0} onChange={(v) => set((i) => { i.after.waves[k].weeksAfterFreeze = Math.max(0, Math.round(v)) })} />
@@ -295,6 +325,7 @@ export default function App() {
               ))}
               {inputs.after.waves.length < 4 && <button className="text-[11px] text-brand-400 hover:text-brand-300 mb-2 min-h-8 px-1" onClick={() => set((i) => { i.after.waves.push({ weeksAfterFreeze: 20, pct: 0.2 }) })}>+ Add wave</button>}
               <p className="text-[10px] text-gray-500 mb-2">Total: {pct(inputs.after.waves.reduce((a, w) => a + w.pct, 0))} of the book. Staff move out in the same proportion.</p>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <NumberInput label="Training h / transferee" value={inputs.after.trainingHours} step={4} min={0} onChange={(v) => set((i) => { i.after.trainingHours = Math.max(0, v) })} />
                 <NumberInput label="…over weeks before" value={inputs.after.trainingWeeks} step={1} min={1} onChange={(v) => set((i) => { i.after.trainingWeeks = Math.max(1, Math.round(v)) })} />
@@ -514,6 +545,8 @@ export default function App() {
               <li><b>After the freeze.</b> Attrition rises again, absence surges for a period, and staff due to move lose productive hours to training in the weeks before their wave. Each wave moves its share of the work, its email backlog and the same share of staff.</li>
               <li><b>Service.</b> Each week the balancing policy shares the team between Voice and Chat (queues across a peak, shoulder and off-peak profile; chat with concurrency) and Email, which carries a backlog. Spare time returns to Voice and Chat.</li>
               <li><b>Service model.</b> Erlang A (default) lets waiting customers give up after an average patience: service level counts them as misses, abandonment is reported, and a share of the extra abandoners redial the next week. Erlang C assumes nobody hangs up. Required FTE is sized with Erlang C either way.</li>
+              <li><b>Book of business.</b> Instead of typing step-downs and waves, describe the clients by shares: contract mix, relationship health, how likely each kind is to transfer, leave or re-platform, notice periods and wave slip. The expected departure curve and the staff who move with the transferring work are derived, and with bands on each future draws its own client fates and dates.</li>
+              <li><b>Team split.</b> At the announcement the team can split into a transfer group and a release group with their own attrition after the announcement and an optional retention offer; waves and training draw on the transfer group, releases on the release group.</li>
               <li><b>Borrowed capacity</b> helps only the channels it is eligible for, and is slower by its AHT multiplier.</li>
               <li><b>Uncertainty.</b> With bands on, every assumption in the register is drawn from its range thousands of times (seeded, so comparisons are fair); answering a question narrows its range and the bands. The line always shows the most-likely inputs. The <b>worst week</b> is the lowest-graded week; among equal grades, the one furthest below target.</li>
             </ul>

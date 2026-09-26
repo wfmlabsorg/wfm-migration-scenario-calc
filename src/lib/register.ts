@@ -2,7 +2,7 @@
 // are of it. The on-screen scenario always uses the likely value (the input field itself); the
 // Monte Carlo draws every entry that has a range. Answering a question narrows its range, which
 // narrows the bands.
-import { PATH_META, QUESTIONS } from './questions'
+import { PATH_META, QUESTIONS, pathRequires, type Requires } from './questions'
 import type { Assumption, Inputs, Status, Triple } from './types'
 
 /** Reads a numeric input by path. `freeze.length` is virtual: end − start. */
@@ -92,17 +92,32 @@ export function recordAnswer(inp: Inputs, path: string, answer: { low?: number; 
   }
 }
 
-/** Entries the Monte Carlo draws (a range with width). */
+/** Whether a mode requirement is met by the scenario (split on, single stock, book mode). */
+export function requirementMet(inp: Inputs, req: Requires | undefined): boolean {
+  if (!req) return true
+  if (req === 'split') return inp.people?.split === true
+  if (req === 'nosplit') return inp.people?.split !== true
+  if (req === 'manual') return inp.book?.mode !== 'book'
+  return inp.book?.mode === 'book'
+}
+
+/** An input is active when the scenario is in the mode that uses it (people.* only when split, book.* only in book mode). */
+export function activePath(inp: Inputs, path: string): boolean {
+  return requirementMet(inp, pathRequires(path))
+}
+
+/** Entries the Monte Carlo draws (a range with width, in an active mode). */
 export function drawn(inp: Inputs): [string, Triple][] {
   return Object.entries(inp.assumptions)
-    .filter(([p, a]) => a.range && PATH_META[p] && a.range[2] > a.range[0])
+    .filter(([p, a]) => a.range && PATH_META[p] && a.range[2] > a.range[0] && activePath(inp, p))
     .map(([p, a]): [string, Triple] => [p, a.range!])
     .sort(([a], [b]) => (a < b ? -1 : 1))
 }
 
+/** Counts over the entries that apply in the scenario's mode. */
 export function statusCounts(inp: Inputs): Record<Status, number> {
   const c = { default: 0, estimated: 0, confirmed: 0 }
-  for (const a of Object.values(inp.assumptions)) c[a.status]++
+  for (const [p, a] of Object.entries(inp.assumptions)) if (activePath(inp, p)) c[a.status]++
   return c
 }
 

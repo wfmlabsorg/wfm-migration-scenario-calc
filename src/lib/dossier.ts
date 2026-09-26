@@ -61,6 +61,27 @@ function assumptions(i: Inputs): string {
       ['Training', `${i.after.trainingHours} h per transferee over ${i.after.trainingWeeks} weeks before each wave`, 'Time off the floor before cutover'],
       ['Releases', i.after.releasesOn ? `on, after ${i.after.noticeWeeks} weeks' notice, ${pct(i.after.releaseBuffer)} buffer` : 'off', 'Surplus staff released'],
     ]],
+    ['Book of business', i.book?.mode === 'book' ? [
+      ['Mode', 'described by shares', 'Departure curve derived from contract mix, relationship health, fate priors and notice periods; step-downs, runoff and manual waves ignored'],
+      ['Contract mix (fixed / rolling / rolling with TfC)', `${pct(i.book.contractMix.fixed)} / ${pct(i.book.contractMix.evergreen)} / ${pct(i.book.contractMix.tfc)}`, 'Shares of workload'],
+      ['Fixed-term expiries', `weeks ${i.book.fixedExpiry[0]}–${i.book.fixedExpiry[1]}`, 'Fixed-term work expires uniformly over this window'],
+      ['Relationship health (green / amber / red)', `${pct(i.book.healthMix.green)} / ${pct(i.book.healthMix.amber)} / ${pct(i.book.healthMix.red)}`, 'Shares of workload'],
+      ['Fate by health (transfer / leave / re-platform)', (['green', 'amber', 'red'] as const).map((h) => `${h}: ${pct(i.book.priors[h].transfer)} / ${pct(i.book.priors[h].exit)} / ${pct(i.book.priors[h].replatform)}`).join('; '), 'Probabilities per health band'],
+      ['Exit notice (rolling / with TfC)', `${i.book.exitNotice.evergreen.join(' · ')} / ${i.book.exitNotice.tfc.join(' · ')} wk after freeze end`, 'PERT low · likely · high; an exit after its wave transfers instead'],
+      ['Re-platform timing', `${i.book.replatformOffset.join(' · ')} wk after freeze end`, 'PERT low · likely · high, capped at the wave'],
+      ['Transfer waves', i.book.waves.map((w, k) => `${k + 1}: ${pct(w.pct)} of transfers at freeze end + ${w.weeksAfterFreeze} wk`).join('; ') || 'none', 'Shares of transferring work; remainder at the last wave'],
+      ['Wave slip', `${i.book.waveSlip.join(' · ')} wk`, 'Added to every wave (PERT)'],
+      ['Client-equivalents per future', `${i.book.granularity}`, 'Monte Carlo granularity of the sampled staircase'],
+    ] : [
+      ['Mode', 'manual', 'Runoff, step-downs and waves entered by hand (see Demand change and After the freeze)'],
+    ]],
+    ['People', i.people?.split ? [
+      ['Split at announcement', 'yes', 'Team splits into a transfer group and a release group at the freeze end'],
+      ['Attrition after announcement (transfer / release)', `× ${i.people.postMultTransfer} / × ${i.people.postMultRelease}`, 'Multipliers on the base rate per group'],
+      ['Retention offer', i.people.retentionEffect > 0 ? `cuts leaving by ${pct(i.people.retentionEffect)} for ${i.people.retentionTarget === 'both' ? 'both groups' : `the ${i.people.retentionTarget} group`}` : 'none', 'Lever, applied after the announcement'],
+    ] : [
+      ['Split at announcement', 'no', 'One stock of staff; the single multiplier under "After the freeze" applies'],
+    ]],
     ['Borrowed capacity', [
       ['Borrowed', i.borrowed.fte > 0 ? `${i.borrowed.fte} FTE, weeks ${i.borrowed.startWeek}–${i.borrowed.endWeek}` : 'none', 'Staff lent from elsewhere'],
       ['AHT penalty / eligible', `× ${i.borrowed.ahtPenalty} / ${Object.entries(i.borrowed.eligible).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`, 'Slower on unfamiliar work; channels they can take'],
@@ -102,6 +123,11 @@ const STRUCTURED_LABEL: Record<string, string> = {
   'demand.stepDowns': 'Step-downs',
   'freeze.backfillBefore': 'Backfill before freeze',
   'channels.targets': 'Service targets',
+  'book.fixedExpiry': 'Fixed-term expiry window',
+  'book.priors': 'Fate by health',
+  'book.exitNotice': 'Exit notice ranges',
+  'book.replatformOffset': 'Re-platform timing',
+  'book.waveSlip': 'Wave slip',
 }
 
 function registerSection(i: Inputs): string {

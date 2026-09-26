@@ -23,7 +23,9 @@ staff leave before the work does. A headcount waterfall can't show that; this ca
 | Service model | Erlang A (default: patience per channel, redial share, abandonment cap on the grade) or Erlang C (no abandonment); optional Erlang C overlay |
 | Channel balancing | Strict priority (reorderable), protect email, share the shortfall, equal attainment |
 | Borrowed capacity | FTE, weeks, AHT penalty, which channels it can handle |
-| Assumptions | A register of ~19 generic questions (plus project questions): each answer is a range with a status (not asked / estimated / confirmed); the Monte Carlo draws every range, so answers narrow the bands |
+| Book of business | Optional: describe the book by contract mix, health mix, fate probabilities, notice ranges, waves as shares of transferring work and wave slip; the expected departure curve replaces manual step-downs, and the Monte Carlo draws real staircases |
+| People split | Optional: at the announcement the team divides into a transfer group and a release group with their own post-announcement attrition and a retention-offer lever |
+| Assumptions | A register of ~30 generic questions (plus project questions): each answer is a range with a status (not asked / estimated / confirmed); the Monte Carlo draws every range, so answers narrow the bands |
 | Shape cards | Import or export a scenario without its scale (cover and workload mix instead of volumes and headcount), e.g. from the Claude Desktop pack |
 
 ## What you get
@@ -100,7 +102,7 @@ Background reading on the WFM Labs wiki:
 ```bash
 bun install
 bun run dev      # local development
-bun test         # 203 tests: Erlang C/A reference values (Erlang A against an event
+bun test         # 230+ tests: Erlang C/A reference values (Erlang A against an event
                  # simulation), invariants, balancing policies, Monte Carlo,
                  # analyst tools, relay rules, quotas, export, no-secrets guard
 bun run build    # production build to dist/

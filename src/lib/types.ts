@@ -35,6 +35,31 @@ export interface ProjectQuestion {
   sets: string[]
 }
 
+export interface Fate { transfer: number; exit: number; replatform: number } // sum 1
+
+/** The team after the announcement: one stock (v1.3) or two, transferees and the release group. */
+export interface People {
+  split: boolean // false ⇒ one stock with attrition.postMult (v1.3 behaviour, byte-identical)
+  postMultTransfer: number // attrition multiplier after the announcement, transfer group (≥1)
+  postMultRelease: number // …release group (≥1)
+  retentionEffect: number // 0–1 reduction of post-announcement attrition on the target group (a lever, no range)
+  retentionTarget: 'release' | 'transfer' | 'both'
+}
+
+/** The book of business described by shares, so its departures can be derived rather than typed in. */
+export interface Book {
+  mode: 'manual' | 'book' // manual ⇒ v1.3 step-downs, runoff and waves untouched
+  contractMix: { fixed: number; evergreen: number; tfc: number } // shares of workload, sum 1 (tfc = rolling with termination for convenience)
+  fixedExpiry: [number, number] // weeks from week 0 over which fixed-term work expires (uniform)
+  healthMix: { green: number; amber: number; red: number } // shares of workload, sum 1
+  priors: { green: Fate; amber: Fate; red: Fate } // fate probabilities by relationship health
+  exitNotice: { evergreen: Triple; tfc: Triple } // weeks after the freeze end, PERT
+  replatformOffset: Triple // weeks after the freeze end, PERT
+  waves: Wave[] // pct = share of TRANSFERRING work per wave (sum ≤ 1; the remainder transfers at the last wave)
+  waveSlip: Triple // weeks added to every wave (PERT); 0/0/0 = none
+  granularity: number // K client-equivalents sampled per Monte Carlo draw (5–200)
+}
+
 export interface Wave {
   weeksAfterFreeze: number // cutover week, counted from the end of the freeze
   pct: number // 0–1 share of the book moved out (and the same share of staff); waves summing to 1 = fully migrated
@@ -76,6 +101,8 @@ export interface Inputs {
   }
   balance: Balance
   service: ServiceModel
+  people: People
+  book: Book
   borrowed: {
     fte: number
     startWeek: number
@@ -133,6 +160,7 @@ export interface WeekResult {
   fteAvail: number
   fteReq: number
   utilisation: number
+  groups?: { transfer: number; release: number } // heads by group after the announcement (people.split only)
   voice: InteractiveWeek
   chat: InteractiveWeek
   email: EmailWeek
@@ -147,6 +175,8 @@ export interface Flows {
   attritionPre: number
   attritionFreeze: number
   attritionPost: number
+  attritionPostTransfer?: number // people.split: part of attritionPost from the transfer group
+  attritionPostRelease?: number // people.split: part of attritionPost from the release group
   moved: number
   released: number
   end: number
@@ -156,7 +186,7 @@ export interface Flows {
 export interface WeekTrace {
   week: number
   phase: Phase
-  headcount: { start: number; moved: number; attritionRate: number; attritionMultiplier: number; lost: number; hired: number; released: number; end: number }
+  headcount: { start: number; moved: number; attritionRate: number; attritionMultiplier: number; lost: number; hired: number; released: number; end: number; transferGroup?: number; releaseGroup?: number; transferShareAtSplit?: number }
   hours: { paidHoursPerHead: number; shrinkage: number; surgePts: number; effectiveShrinkage: number; grossProductive: number; trainingHours: number; productive: number }
   borrowed: { active: boolean; fte: number; ahtPenalty: number; homeEquivalentHours: number; usedHours: number; idleHours: number }
   buckets: {
@@ -186,4 +216,15 @@ export interface RunResult {
   freezeEnd: number
   waveWeeks: number[]
   warnings: string[]
+  book?: BookCurve // book mode: the departure curve the run used (expected, or the drawn staircase in a Monte Carlo)
+}
+
+/** A departure curve for the book: shares of the week-0 book, per week. */
+export interface BookCurve {
+  remaining: number[] // book still at the source during week w (after that week's departures)
+  transferLeaving: number[] // share of the week-0 book transferring (moving staff) at the start of week w
+  exitLeaving: number[] // share leaving because the client exits
+  replatformLeaving: number[] // share leaving because the work is re-platformed
+  impliedFates: Fate // expected fate shares after the late-exit rule
+  transferShareAtAnnouncement: number // τ: share of the book still here at the announcement that will transfer
 }

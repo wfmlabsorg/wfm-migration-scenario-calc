@@ -20,6 +20,16 @@ const STRUCTURED_LABEL: Record<string, string> = {
   'demand.stepDowns': 'Step-downs (set in "Demand")',
   'freeze.backfillBefore': 'Backfill before the freeze (set in "Freeze period")',
   'channels.targets': 'Service targets (set in "Channels")',
+  'book.fixedExpiry': 'Fixed-term expiry window (set in "Book of business")',
+  'book.priors': 'Fate by health (set in "Book of business")',
+  'book.exitNotice': 'Exit notice ranges (set in "Book of business"; drawn directly)',
+  'book.replatformOffset': 'Re-platform timing (set in "Book of business"; drawn directly)',
+  'book.waveSlip': 'Wave slip (set in "Book of business"; drawn directly)',
+}
+
+/** Whether a question's inputs are active in the current scenario (book mode, team split). */
+export function questionActive(inputs: Inputs, sets: string[]): boolean {
+  return sets.every((p) => (p.startsWith('book.') ? inputs.book?.mode === 'book' : p.startsWith('people.') ? !!inputs.people?.split : true))
 }
 
 /** Display scale for a path: percentages as whole numbers. */
@@ -106,13 +116,16 @@ function Row({ path, a, set }: { path: string; a: Assumption | undefined; set: P
 function QuestionBlock({ q, inputs, set, open }: { q: Pick<Question, 'id' | 'text' | 'sets'> & { why?: string; hint?: string }; inputs: Inputs; set: Props['set']; open?: boolean }) {
   const sts = q.sets.map((p) => inputs.assumptions[p]?.status ?? 'default')
   const done = sts.every((s) => s === 'confirmed') ? 'confirmed' : sts.some((s) => s !== 'default') ? 'estimated' : 'default'
+  const active = questionActive(inputs, q.sets)
+  const offWhy = q.sets.some((p) => p.startsWith('book.')) ? 'switch "Book of business" to "Describe the book"' : 'turn on "Split the team at the announcement"'
   return (
-    <details className="mb-1" id={`question-${q.id}`} open={open} data-status={done}>
+    <details className={`mb-1 ${active ? '' : 'opacity-60'}`} id={`question-${q.id}`} open={open} data-status={active ? done : 'off'}>
       <summary className="cursor-pointer text-[11px] text-gray-200 py-1.5 list-none flex gap-2 items-start min-h-8">
-        <span className={`shrink-0 mt-0.5 w-2 h-2 rounded-full ${done === 'confirmed' ? 'bg-emerald-400' : done === 'estimated' ? 'bg-amber-400' : 'bg-gray-600'}`} />
-        <span><span className="text-gray-500">{q.id}</span> {q.text}</span>
+        <span className={`shrink-0 mt-0.5 w-2 h-2 rounded-full ${!active ? 'bg-gray-800 border border-gray-600' : done === 'confirmed' ? 'bg-emerald-400' : done === 'estimated' ? 'bg-amber-400' : 'bg-gray-600'}`} />
+        <span><span className="text-gray-500">{q.id}</span> {q.text}{!active && <span className="ml-1 text-[9px] text-gray-500 uppercase">(off)</span>}</span>
       </summary>
       <div className="pl-4 pb-1">
+        {!active && <p className="text-[10px] text-amber-300/80">Not in use: {offWhy} to make this question count.</p>}
         {q.why && <p className="text-[10px] text-gray-500">{q.why}</p>}
         {q.hint && <p className="text-[10px] text-gray-500 italic">{q.hint}</p>}
         {q.sets.map((p) => <Row key={p} path={p} a={inputs.assumptions[p]} set={set} />)}
@@ -124,7 +137,7 @@ function QuestionBlock({ q, inputs, set, open }: { q: Pick<Question, 'id' | 'tex
 export default function AssumptionsCard({ inputs, set }: Props) {
   const c = statusCounts(inputs)
   const total = c.default + c.estimated + c.confirmed || 1
-  const groups = ['Timing', 'People', 'Demand', 'Service'] as const
+  const groups = ['Timing', 'People', 'Demand', 'Book', 'Service'] as const
   const root = useRef<HTMLDivElement>(null)
   const [jumpTo, setJumpTo] = useState<string | null>(null)
   const jumpToFirstOpen = () => {

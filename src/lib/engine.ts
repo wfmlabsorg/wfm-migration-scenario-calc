@@ -7,10 +7,11 @@
 // voice, then chat, then email from whatever is left, with spare hours returned to voice
 // and chat. Shrinkage is applied once, on the supply side.
 
+import { bookWaves, expectedBook, staffWavesFrom } from './book'
 import { curve } from './erlang'
 import { curveA } from './erlangA'
 import { binomial, type Rng } from './random'
-import type { Balance, Channel, Inputs, ServiceModel, InteractiveWeek, Phase, RunResult, WeekResult, WeekTrace } from './types'
+import type { Balance, BookCurve, Channel, Inputs, ServiceModel, InteractiveWeek, Phase, RunResult, WeekResult, WeekTrace } from './types'
 
 const INTERVAL = 1800 // seconds per Erlang interval
 const SLIVER = 0.1 // channels below this share of baseline volume are not scored
@@ -50,6 +51,23 @@ export interface RunOptions {
   freezeEndOverride?: number
   overrides?: Partial<{ tensionMult: number; postMult: number; surgePts: number; runoffPctWeek: number }>
   quantiseLoad?: boolean // Monte Carlo: round offered loads to 3 significant figures so Erlang curves are reused
+  bookCurve?: BookCurve // book mode, Monte Carlo: one future's drawn departure staircase (default: the expected curve)
+}
+
+/** A staff move: a share of the whole team leaves (pct), which is a share pctT of the transfer group when the team is split. */
+export interface StaffWave { week: number; pct: number; pctT: number }
+
+/** Manual waves with, for each, the share of the transfer group it takes: π_j ÷ τ_j, τ_j = 1 − Π_{k≥j}(1 − π_k). */
+export function staffWaves(inp: Inputs, freezeEnd: number): StaffWave[] {
+  const ws = scheduledWaves(inp, freezeEnd)
+  const out: StaffWave[] = []
+  for (let j = 0; j < ws.length; j++) {
+    let keep = 1
+    for (let k = j; k < ws.length; k++) keep *= 1 - ws[k].pct
+    const tau = 1 - keep
+    out.push({ week: ws[j].week, pct: ws[j].pct, pctT: tau > 1e-12 ? Math.min(1, ws[j].pct / tau) : 0 })
+  }
+  return out
 }
 
 export function allocShares(inp: Inputs): number[] {
@@ -119,7 +137,7 @@ export function demandWeekFor(inp: Inputs, vol: { voice: number; chat: number; e
   }
 }
 
-function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff: number, quantise = false): DemandWeek[] {
+function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff: number, quantise = false, book?: BookCurve): DemandWeek[] {
   const W = inp.horizonWeeks
   const { voice, chat, email } = inp.channels
   const runoffStart = inp.demand.runoffStartWeek ?? freezeStart
@@ -129,11 +147,18 @@ function demandPass(inp: Inputs, freezeStart: number, freezeEnd: number, runoff:
   let existing = 1
   let waveMult = 1
   for (let w = 0; w < W; w++) {
-    if (w >= runoffStart) existing *= 1 - runoff
-    for (const s of inp.demand.stepDowns) if (s.week === w) existing *= 1 - s.pct
-    for (const wv of waves) if (wv.week === w) waveMult *= 1 - wv.pct
-    const newBook = inp.demand.intakeOn ? inp.demand.intakePct * (1 - existing) : 0
-    const f = (existing + newBook) * waveMult
+    let f: number
+    if (book) {
+      // book mode: the departure curve replaces runoff, step-downs and waves; intake may replace the drop
+      const left = book.remaining[w]
+      f = left + (inp.demand.intakeOn ? inp.demand.intakePct * (1 - left) : 0)
+    } else {
+      if (w >= runoffStart) existing *= 1 - runoff
+      for (const s of inp.demand.stepDowns) if (s.week === w) existing *= 1 - s.pct
+      for (const wv of waves) if (wv.week === w) waveMult *= 1 - wv.pct
+      const newBook = inp.demand.intakeOn ? inp.demand.intakePct * (1 - existing) : 0
+      f = (existing + newBook) * waveMult
+    }
     const vol = { voice: voice.volume * f, chat: chat.volume * f, email: email.volume * f }
     out.push(demandWeekFor(inp, vol, quantise))
   }
@@ -385,10 +410,19 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
   const warnings: string[] = []
 
   const q = !!opts.quantiseLoad
-  const demand = demandPass(inp, freezeStart, freezeEnd, runoff, q)
+  const bookMode = inp.book?.mode === 'book'
+  const bookCurve = bookMode ? opts.bookCurve ?? expectedBook(inp, freezeEnd) : undefined
+  const demand = demandPass(inp, freezeStart, freezeEnd, runoff, q, bookCurve)
   const base = demandPass({ ...inp, demand: { ...inp.demand, runoffPctWeek: 0, stepDowns: [], intakeOn: false }, after: { ...inp.after, waves: [] } }, freezeStart, freezeEnd, 0, q)[0]
-  const waves = scheduledWaves(inp, freezeEnd)
-  if (waves.some((wv) => wv.week >= W)) warnings.push('One or more waves fall beyond the horizon; their training still counts but the move does not happen.')
+  // staff moves: manual waves (conditional shares of the book), or derived from the book's transfers
+  const waves: StaffWave[] = bookCurve
+    ? staffWavesFrom(bookCurve).map((x) => ({ week: x.week, pct: x.pct, pctT: x.pctOfTransferGroup }))
+    : staffWaves(inp, freezeEnd)
+  if (!bookMode && waves.some((wv) => wv.week >= W)) warnings.push('One or more waves fall beyond the horizon; their training still counts but the move does not happen.')
+  const split = inp.people?.split === true
+  const ppl = inp.people ?? { split: false, postMultTransfer: post, postMultRelease: post, retentionEffect: 0, retentionTarget: 'release' as const }
+  const retT = ppl.retentionTarget === 'transfer' || ppl.retentionTarget === 'both' ? ppl.retentionEffect : 0
+  const retR = ppl.retentionTarget === 'release' || ppl.retentionTarget === 'both' ? ppl.retentionEffect : 0
   if (freezeStart === 0 && inp.freeze.backfillBefore) warnings.push('The freeze starts in week 0, so pre-freeze backfill never applies.')
 
   const { paidHours, shrinkage, openHours } = inp.pool
@@ -397,7 +431,12 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
   const hours = inp.profile.hourShare.map((h) => openHours * h)
   const H0 = inp.pool.fte
   let H = H0
-  const flows = { start: H0, hired: 0, attritionPre: 0, attritionFreeze: 0, attritionPost: 0, moved: 0, released: 0, end: 0 }
+  let T = 0 // transfer group (people.split, after the announcement)
+  let R = 0 // release group
+  let splitDone = false
+  let tauAtSplit = NaN
+  const flows: RunResult['flows'] = { start: H0, hired: 0, attritionPre: 0, attritionFreeze: 0, attritionPost: 0, moved: 0, released: 0, end: 0 }
+  if (split) { flows.attritionPostTransfer = 0; flows.attritionPostRelease = 0 }
   let backlog = 0
   let backlogMoved = 0
   const weeks: WeekResult[] = []
@@ -421,13 +460,35 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     const headsAtStart = H
     const backlogIn = backlog
 
+    // 0. the announcement: the team splits into those who go with the work and those who stay to be released
+    if (split && !splitDone && w >= freezeEnd) {
+      let tau: number
+      if (bookCurve) tau = bookCurve.transferShareAtAnnouncement
+      else {
+        let keep = 1
+        for (const wv of waves) if (wv.week >= w) keep *= 1 - wv.pct
+        tau = 1 - keep
+      }
+      tauAtSplit = Math.min(1, Math.max(0, tau))
+      T = H * tauAtSplit
+      R = H - T
+      splitDone = true
+    }
+
     // 1. waves: staff and the work's email backlog leave with it, in sequence when they share a week
     let moved = 0
     for (const wv of waves)
       if (wv.week === w) {
-        const m = H * wv.pct
-        H -= m
-        moved += m
+        if (splitDone) {
+          const m = T * wv.pctT
+          T -= m
+          H = T + R
+          moved += m
+        } else {
+          const m = H * wv.pct
+          H -= m
+          moved += m
+        }
         backlogMoved += backlog * wv.pct
         backlog *= 1 - wv.pct
       }
@@ -435,24 +496,41 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     // 2. attrition
     const mult = phase === 'pre' ? 1 : phase === 'freeze' ? tension : post
     const p = Math.min(1, (inp.attrition.annual / 52) * mult)
-    const lost = opts.rng ? Math.min(H, binomial(opts.rng, Math.round(H), p)) : H * p
-    H -= lost
+    let lost: number
+    let lostT = 0
+    let lostR = 0
+    if (splitDone) {
+      const pT = Math.min(1, (inp.attrition.annual / 52) * ppl.postMultTransfer * (1 - retT))
+      const pR = Math.min(1, (inp.attrition.annual / 52) * ppl.postMultRelease * (1 - retR))
+      lostT = opts.rng ? Math.min(T, binomial(opts.rng, Math.round(T), pT)) : T * pT
+      lostR = opts.rng ? Math.min(R, binomial(opts.rng, Math.round(R), pR)) : R * pR
+      T -= lostT
+      R -= lostR
+      lost = lostT + lostR
+      H = T + R
+    } else {
+      lost = opts.rng ? Math.min(H, binomial(opts.rng, Math.round(H), p)) : H * p
+      H -= lost
+    }
 
     // 3. backfill, before the freeze only
     const hired = phase === 'pre' && inp.freeze.backfillBefore ? Math.max(0, H0 - H) : 0
     H += hired
 
     // this week's productive hours per head: shrinkage plus the absence surge, less pre-wave training
+    // (after the split, training falls on the transfer group only)
     const surge = phase === 'post' && w < freezeEnd + inp.after.surgeWeeks ? surgePts : 0
     let trainPerHead = 0
     for (const wv of waves)
       if (inp.after.trainingWeeks > 0 && w >= wv.week - inp.after.trainingWeeks && w < wv.week)
-        trainPerHead += (wv.pct * inp.after.trainingHours) / inp.after.trainingWeeks
-    const prodPerHead = Math.max(1e-9, paidHours * (1 - Math.min(0.95, shrinkage + surge)) - trainPerHead)
+        trainPerHead += ((splitDone ? wv.pctT : wv.pct) * inp.after.trainingHours) / inp.after.trainingWeeks
+    const grossPerHead = paidHours * (1 - Math.min(0.95, shrinkage + surge))
+    const prodPerHead = Math.max(1e-9, grossPerHead - trainPerHead)
 
     // 4. releases, only after the dismissal notice and never below the look-ahead need: the largest
     //    required hours over this and the next lookahead weeks, including this week's retries and
     //    the email backlog carried in, converted to heads at this week's productive hours per head
+    //    (after the split, only the release group is released)
     let released = 0
     if (inp.after.releasesOn && w >= freezeEnd + inp.after.noticeWeeks) {
       let needHours = 0
@@ -460,15 +538,22 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
       const dailyNow = (d.emailArrivalHours > 0 ? d.emailArrivalHours : base.emailArrivalHours) / 5
       const excessNow = Math.max(0, backlog - inp.channels.email.targetDays * dailyNow)
       needHours = Math.max(needHours, d.bucketBindHours, d.interactiveNeedHours + d.emailArrivalHours + excessNow / 4)
-      released = Math.max(0, H - ((1 + inp.after.releaseBuffer) * needHours) / prodPerHead)
-      H -= released
+      if (splitDone) {
+        const capacity = T * prodPerHead + R * grossPerHead
+        released = Math.max(0, Math.min(R, (capacity - (1 + inp.after.releaseBuffer) * needHours) / grossPerHead))
+        R -= released
+        H = T + R
+      } else {
+        released = Math.max(0, H - ((1 + inp.after.releaseBuffer) * needHours) / prodPerHead)
+        H -= released
+      }
     }
 
     // 5. productive hours
     let trainingHours = 0
     for (const wv of waves)
       if (inp.after.trainingWeeks > 0 && w >= wv.week - inp.after.trainingWeeks && w < wv.week)
-        trainingHours += (H * wv.pct * inp.after.trainingHours) / inp.after.trainingWeeks
+        trainingHours += ((splitDone ? T * wv.pctT : H * wv.pct) * inp.after.trainingHours) / inp.after.trainingWeeks
     const P = Math.max(0, H * paidHours * (1 - Math.min(0.95, shrinkage + surge)) - trainingHours)
     const b = inp.borrowed
     const borrowActive = w >= b.startWeek && w <= b.endWeek && b.fte > 0
@@ -569,6 +654,10 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     if (phase === 'pre') flows.attritionPre += lost
     else if (phase === 'freeze') flows.attritionFreeze += lost
     else flows.attritionPost += lost
+    if (splitDone) {
+      flows.attritionPostTransfer = (flows.attritionPostTransfer ?? 0) + lostT
+      flows.attritionPostRelease = (flows.attritionPostRelease ?? 0) + lostR
+    }
     flows.hired += hired
     flows.moved += moved
     flows.released += released
@@ -578,7 +667,10 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
       trace = {
         week: w,
         phase,
-        headcount: { start: headsAtStart, moved, attritionRate: p, attritionMultiplier: mult, lost, hired, released, end: H },
+        headcount: {
+          start: headsAtStart, moved, attritionRate: p, attritionMultiplier: mult, lost, hired, released, end: H,
+          ...(splitDone ? { transferGroup: T, releaseGroup: R, transferShareAtSplit: tauAtSplit } : {}),
+        },
         hours: {
           paidHoursPerHead: paidHours, shrinkage, surgePts: surge, effectiveShrinkage: Math.min(0.95, shrinkage + surge),
           grossProductive: H * paidHours * (1 - Math.min(0.95, shrinkage + surge)), trainingHours, productive: P,
@@ -634,6 +726,7 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
       fteAvail,
       fteReq,
       utilisation,
+      ...(splitDone ? { groups: { transfer: T, release: R } } : {}),
       voice,
       chat,
       email,
@@ -643,5 +736,6 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     })
   }
   flows.end = H
-  return { trace, weeks, flows, emailBacklogMovedHours: backlogMoved, freezeStart, freezeEnd, waveWeeks: waves.map((x) => x.week), warnings }
+  const waveWeeksOut = bookMode ? bookWaves(inp.book).map((x) => freezeEnd + x.offset) : waves.map((x) => x.week)
+  return { trace, weeks, flows, emailBacklogMovedHours: backlogMoved, freezeStart, freezeEnd, waveWeeks: waveWeeksOut, warnings, ...(bookCurve ? { book: bookCurve } : {}) }
 }

@@ -70,7 +70,7 @@ describe('change validation', () => {
   })
   test('every allowed path exists in the inputs and every tool enum matches', () => {
     for (const p of PATHS) {
-      if (p.path === 'service.useErlangA') continue // virtual: sets service.model
+      if (['service.useErlangA', 'people.split', 'book.useBook'].includes(p.path)) continue // virtual: set a mode
       const v = p.path.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown>)?.[k], DEFAULTS)
       expect(v === undefined).toBe(false)
     }

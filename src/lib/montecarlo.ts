@@ -4,11 +4,12 @@
 // question does not reshuffle the others, and a scenario and its comparison see the same futures
 // (common random numbers).
 
+import { normaliseMixes, sampledBook } from './book'
 import { run } from './engine'
 import { mulberry32, pert } from './random'
 import { QUESTIONS } from './questions'
 import { drawn, setPath, syncRegister } from './register'
-import type { Inputs } from './types'
+import type { BookCurve, Inputs } from './types'
 
 export const MC_METRICS = ['voice', 'chat', 'email', 'fteAvail', 'fteReq', 'heads'] as const
 export type McMetric = (typeof MC_METRICS)[number]
@@ -75,7 +76,13 @@ export function simulate(input: Inputs, draws: number, seed: number): McBands {
     }
     const freezeEnd = Math.round(x.freeze.startWeek + length)
     ends.push(freezeEnd)
-    const r = run(x, { rng: stream(seed, 'attrition', d), freezeEndOverride: freezeEnd, quantiseLoad: true })
+    // book mode: the mixes drawn above are rescaled to shares, then this future's own staircase is drawn
+    let bookCurve: BookCurve | undefined
+    if (x.book?.mode === 'book') {
+      normaliseMixes(x)
+      bookCurve = sampledBook(x, freezeEnd, stream(seed, 'book', d))
+    }
+    const r = run(x, { rng: stream(seed, 'attrition', d), freezeEndOverride: freezeEnd, quantiseLoad: true, bookCurve })
     series.voice.push(r.weeks.map((w) => w.voice.sl))
     series.chat.push(r.weeks.map((w) => w.chat.sl))
     series.email.push(r.weeks.map((w) => w.email.timeliness))

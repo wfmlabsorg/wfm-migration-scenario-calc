@@ -2,17 +2,24 @@
 // public tool the *shape* of a migration (timing, ratios, rates, handle times, ranges and how sure
 // each one is) without real headcount, volumes or names. On import the tool rebuilds volumes
 // for a reference team size so that week-0 cover and the workload mix match the card.
+//
+// Format 1 carries departures as a fixed staircase (step-downs and waves). Format 2 also carries
+// the book itself (contract and health mix, fate priors, notice ranges, waves as shares of
+// transferring work, wave slip) and the team's transfer/release split, so the tool can derive
+// the departure curve and draw real staircases in its Monte Carlo. Both formats import.
 import { cloneDefaults } from './defaults'
 import { run } from './engine'
 import { PATH_META } from './questions'
 import { defaultRegister, sanitiseRegister, syncRegister } from './register'
 import { sanitiseQuestions } from './share'
-import type { Assumption, Inputs, ProjectQuestion } from './types'
+import type { Assumption, Inputs, ProjectQuestion, Triple } from './types'
 
-export const CARD_FORMAT = 'wfm-migration-shape-card/1'
+export const CARD_FORMAT_1 = 'wfm-migration-shape-card/1'
+export const CARD_FORMAT = 'wfm-migration-shape-card/2'
+export const CARD_FORMATS = [CARD_FORMAT_1, CARD_FORMAT] as const
 
 export interface ShapeCard {
-  format: typeof CARD_FORMAT
+  format: (typeof CARD_FORMATS)[number]
   title: string
   created: string
   note?: string // a caveat the exporter attached (e.g. that departures are an expected staircase)
@@ -97,16 +104,54 @@ export function cardWarnings(raw: unknown): string[] {
   const steps = (s.demand?.stepDowns as unknown[] | undefined)?.length ?? 0
   if (steps > 0) out.push('Step-downs are fixed calendar weeks: they do not move with the freeze length.')
   if (typeof c.occupancy === 'number' && typeof c.cover !== 'number') out.push('Volumes were rebuilt from week-0 occupancy for the team size you chose; pick a size near the real one, because bigger pools serve better at the same occupancy.')
+  if (c.format === CARD_FORMAT_1 || !s.book) out.push('This card carries departures as a fixed staircase; a v2 card from pack ≥ 1.2 carries the book itself.')
   return out
+}
+
+const share = (x: unknown) => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= 1
+const triple = (x: unknown): x is Triple => Array.isArray(x) && x.length === 3 && x.every((v) => typeof v === 'number' && Number.isFinite(v)) && x[0] <= x[1] && x[1] <= x[2]
+const sumsToOne = (o: Record<string, unknown>, keys: string[]) => keys.every((k) => share(o[k])) && Math.abs(keys.reduce((t, k) => t + (o[k] as number), 0) - 1) < 1e-3
+
+/** Validates a v2 book block: shares, probabilities, ranges and weeks only. */
+function checkBook(b: unknown): string | null {
+  if (!b || typeof b !== 'object') return 'book must be an object'
+  const o = b as Record<string, any>
+  if (o.mode !== 'manual' && o.mode !== 'book') return 'book.mode must be manual or book'
+  if (!o.contractMix || !sumsToOne(o.contractMix, ['fixed', 'evergreen', 'tfc'])) return 'book.contractMix must be three shares summing to 1'
+  if (!o.healthMix || !sumsToOne(o.healthMix, ['green', 'amber', 'red'])) return 'book.healthMix must be three shares summing to 1'
+  for (const h of ['green', 'amber', 'red']) if (!o.priors?.[h] || !sumsToOne(o.priors[h], ['transfer', 'exit', 'replatform'])) return `book.priors.${h} must be three probabilities summing to 1`
+  if (!Array.isArray(o.fixedExpiry) || o.fixedExpiry.length !== 2 || !o.fixedExpiry.every((v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 200) || o.fixedExpiry[0] > o.fixedExpiry[1]) return 'book.fixedExpiry must be [first, last] weeks'
+  if (!o.exitNotice || !triple(o.exitNotice.evergreen) || !triple(o.exitNotice.tfc)) return 'book.exitNotice ranges must be [low, likely, high]'
+  if (!triple(o.replatformOffset) || !triple(o.waveSlip)) return 'book.replatformOffset and waveSlip must be [low, likely, high]'
+  if (!Array.isArray(o.waves) || o.waves.length > 4 || !o.waves.every((w: any) => w && Number.isInteger(w.weeksAfterFreeze) && w.weeksAfterFreeze >= 0 && w.weeksAfterFreeze <= 77 && share(w.pct))) return 'book.waves must be at most 4 {weeksAfterFreeze, pct} with pct 0–1'
+  if (!(Number.isInteger(o.granularity) && o.granularity >= 5 && o.granularity <= 200)) return 'book.granularity must be a whole number 5–200'
+  const allowed = new Set(['mode', 'contractMix', 'fixedExpiry', 'healthMix', 'priors', 'exitNotice', 'replatformOffset', 'waves', 'waveSlip', 'granularity'])
+  for (const k of Object.keys(o)) if (!allowed.has(k)) return `book.${k} is not part of a shape card`
+  return null
+}
+
+function checkPeople(p: unknown): string | null {
+  if (!p || typeof p !== 'object') return 'people must be an object'
+  const o = p as Record<string, unknown>
+  if (typeof o.split !== 'boolean') return 'people.split must be true/false'
+  for (const k of ['postMultTransfer', 'postMultRelease']) if (!(typeof o[k] === 'number' && Number.isFinite(o[k] as number) && (o[k] as number) >= 1 && (o[k] as number) <= 8)) return `people.${k} must be a multiplier 1–8`
+  if (!share(o.retentionEffect)) return 'people.retentionEffect must be 0–1'
+  if (!['release', 'transfer', 'both'].includes(o.retentionTarget as string)) return 'people.retentionTarget must be release, transfer or both'
+  const allowed = new Set(['split', 'postMultTransfer', 'postMultRelease', 'retentionEffect', 'retentionTarget'])
+  for (const k of Object.keys(o)) if (!allowed.has(k)) return `people.${k} is not part of a shape card`
+  return null
 }
 
 /** Rejects anything that is not a scale-free card. Returns a readable reason. */
 export function checkCard(raw: unknown): string | null {
   if (!raw || typeof raw !== 'object') return 'Not a shape card (expected a JSON object).'
   const c = raw as Record<string, unknown>
-  if (c.format !== CARD_FORMAT) return `Unknown format "${String(c.format)}"; expected ${CARD_FORMAT}.`
+  if (!CARD_FORMATS.includes(c.format as never)) return `Unknown format "${String(c.format)}"; expected ${CARD_FORMATS.join(' or ')}.`
   const s = c.scenario as Record<string, Record<string, unknown>> | undefined
   if (!s || typeof s !== 'object') return 'The card has no scenario.'
+  if (c.format === CARD_FORMAT_1 && ('book' in s || 'people' in s)) return 'A format-1 card cannot carry a book or people block.'
+  if ('book' in s) { const why = checkBook(s.book); if (why) return why }
+  if ('people' in s) { const why = checkPeople(s.people); if (why) return why }
   const chans = (s.channels ?? {}) as Record<string, Record<string, unknown>>
   if (CHANNELS.some((k) => chans[k] && 'volume' in chans[k])) return 'The card contains absolute volumes. Shape cards carry the workload mix and cover instead.'
   if (s.pool && 'fte' in s.pool) return 'The card contains team headcount. Shape cards carry cover and shares instead.'

@@ -1,8 +1,8 @@
 {
-  "format": "wfm-migration-shape-card/1",
+  "format": "wfm-migration-shape-card/2",
   "title": "Migration scenario (from the desktop pack)",
   "created": "2026-09-26",
-  "note": "Departures are the expected (mean) staircase over the pack's draws; the pack's P50 trough is deeper. Turn on bands and treat this as exploration.",
+  "note": "The book travels as shares (contract and health mix, fate priors, notice ranges, waves); the modeler draws real staircases from them. One blended team stands in for the pack's pools.",
   "occupancy": 0.7658,
   "mix": {
     "voice": 0.7823,
@@ -147,6 +147,84 @@
       },
       "redialRate": 0.4,
       "abandonCap": 0.1
+    },
+    "book": {
+      "mode": "book",
+      "contractMix": {
+        "fixed": 0.6295,
+        "evergreen": 0.159,
+        "tfc": 0.2115
+      },
+      "fixedExpiry": [
+        0,
+        89
+      ],
+      "healthMix": {
+        "green": 0.4464,
+        "amber": 0.3919,
+        "red": 0.1617
+      },
+      "priors": {
+        "green": {
+          "transfer": 0.85,
+          "exit": 0.1,
+          "replatform": 0.05
+        },
+        "amber": {
+          "transfer": 0.65,
+          "exit": 0.25,
+          "replatform": 0.1
+        },
+        "red": {
+          "transfer": 0.35,
+          "exit": 0.55,
+          "replatform": 0.1
+        }
+      },
+      "exitNotice": {
+        "evergreen": [
+          8.0,
+          13.0,
+          26.0
+        ],
+        "tfc": [
+          4.0,
+          6.0,
+          13.0
+        ]
+      },
+      "replatformOffset": [
+        4.0,
+        8.0,
+        16.0
+      ],
+      "waves": [
+        {
+          "weeksAfterFreeze": 6,
+          "pct": 0.2963
+        },
+        {
+          "weeksAfterFreeze": 12,
+          "pct": 0.4966
+        },
+        {
+          "weeksAfterFreeze": 18,
+          "pct": 0.2071
+        }
+      ],
+      "waveSlip": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "granularity": 40
+    },
+    "people": {
+      "split": true,
+      "postMultTransfer": 1.2,
+      "postMultRelease": 3.0,
+      "retentionEffect": 0.0,
+      "retentionTarget": "release"
     }
   },
   "assumptions": {
@@ -248,6 +326,105 @@
       "status": "estimated",
       "note": "Exits and re-platforming, expected over the pack's draws"
     },
+    "book.contractMix.fixed": {
+      "range": [
+        0.5295,
+        0.6295,
+        0.7295
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.contractMix.evergreen": {
+      "range": [
+        0.059,
+        0.159,
+        0.259
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.contractMix.tfc": {
+      "range": [
+        0.1115,
+        0.2115,
+        0.3115
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.healthMix.green": {
+      "range": [
+        0.3464,
+        0.4464,
+        0.5464
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.healthMix.amber": {
+      "range": [
+        0.2919,
+        0.3919,
+        0.4919
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.healthMix.red": {
+      "range": [
+        0.0617,
+        0.1617,
+        0.2617
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.fixedExpiry": {
+      "status": "estimated",
+      "note": "Expiry weeks of the fixed-term contracts in the client list"
+    },
+    "book.priors": {
+      "status": "default",
+      "note": "Fate probabilities by relationship health"
+    },
+    "book.exitNotice": {
+      "status": "default"
+    },
+    "book.replatformOffset": {
+      "status": "default"
+    },
+    "book.waveSlip": {
+      "status": "default",
+      "note": "The pack schedules waves at fixed offsets; slip is the modeler's lever"
+    },
+    "people.postMultTransfer": {
+      "range": [
+        1.0,
+        1.2,
+        2.0
+      ],
+      "status": "default",
+      "note": "Transfer group (values below 1 in the pack are floored at 1 here)"
+    },
+    "people.postMultRelease": {
+      "range": [
+        1.5,
+        3.0,
+        5.0
+      ],
+      "status": "default",
+      "note": "Release group"
+    },
+    "people.retentionEffect": {
+      "range": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "status": "default",
+      "note": "Lever, not a fact: the reduction a retention offer buys"
+    },
     "channels.voice.volume": {
       "range": [
         0.92,
@@ -270,7 +447,7 @@
   "questions": [],
   "source": {
     "tool": "CP-WFM-019 pack",
-    "version": "1.1",
+    "version": "1.2",
     "date": "2026-09-26"
   }
 }

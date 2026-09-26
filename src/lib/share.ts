@@ -1,5 +1,6 @@
 // Scenario <-> URL hash, so a copied link reproduces the scenario exactly.
 // Links also record the engine commit (v=), so a scenario can be traced to the code that produced it.
+import { sanitiseBook, sanitisePeople } from './book'
 import { DEFAULTS } from './defaults'
 import { defaultRegister, migrateV12Uncertainty, sanitiseRegister } from './register'
 import type { Inputs, ProjectQuestion } from './types'
@@ -66,6 +67,9 @@ export function decode(hash: string): Inputs | null {
     inputs.horizonWeeks = Number.isFinite(inputs.horizonWeeks) ? Math.min(78, Math.max(13, Math.round(inputs.horizonWeeks))) : DEFAULTS.horizonWeeks
     inputs.after.waves = sanitiseList(inputs.after.waves, 'weeksAfterFreeze', 4)
     inputs.demand.stepDowns = sanitiseList(inputs.demand.stepDowns, 'week', 12)
+    // links made before v1.4 have neither block: one stock, manual departures
+    inputs.people = sanitisePeople(saved?.people, DEFAULTS.people)
+    inputs.book = sanitiseBook(saved?.book, DEFAULTS.book)
     // links made before v1.3 carried five PERT ranges instead of an assumption register;
     // every question the link does not answer starts unasked (its generic range)
     const saved_ = saved && typeof saved === 'object' && 'assumptions' in saved ? sanitiseRegister(saved.assumptions) : migrateV12Uncertainty(saved?.uncertainty)

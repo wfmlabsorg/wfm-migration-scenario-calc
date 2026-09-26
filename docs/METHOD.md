@@ -17,7 +17,14 @@ Each run has two passes.
    off-peak) and converted to offered load per 30-minute interval. Chat uses
    AHT ÷ concurrency.
 5. The agents each channel needs to reach its target in each bucket come from Erlang C, with
-   fractional agents interpolated between neighbouring integers.
+   fractional agents interpolated between neighbouring integers. This is the **sizing** need
+   behind required FTE, whatever the service model.
+6. Under the **Erlang A** service model (the default), each bucket also gets an Erlang A curve
+   (M/M/N+M): waiting customers give up after an exponential patience (default 120 s voice,
+   300 s chat). Its need at target drives allocation and its service level and abandon rate are
+   what the week delivers. Service level is answered within the threshold ÷ **all** offered, so
+   abandoners count as misses. The formulas are exact (a series normalised through Erlang B) and
+   are checked against an event-by-event simulation in `tests/erlangA.test.ts`.
 
 **Supply pass**, in this order every week:
 
@@ -65,13 +72,21 @@ The balancing policy decides who absorbs a shortfall:
 
 Every policy then works email down to its full due from whatever is left and returns remaining time to voice and chat in proportion to need.
 
-**Why spreading a shortfall usually hurts.** Phone and chat queues near capacity are steeply non-linear (Erlang C). A few percent fewer agents can take service from target to near zero, so sharing a shortfall pushes voice and chat over that cliff, while strict priority lets email's backlog absorb it. Equal attainment maximises the worst channel, which is what the grade scores, so it tends to grade best. It is fair week by week, and the email backlog it defers is repaid through later weeks' due. The default policy reproduces the pre-balancing engine exactly (regression fixture in `tests/fixtures`).
+**Why spreading a shortfall usually hurts.** Under Erlang C, phone and chat queues near capacity are steeply non-linear. A few percent fewer agents can take service from target to near zero, so sharing a shortfall pushes voice and chat over that cliff, while strict priority lets email's backlog absorb it. Equal attainment maximises the worst channel, which is what the grade scores, so it tends to grade best. It is fair week by week, and the email backlog it defers is repaid through later weeks' due. Under Erlang A the cliff is softened: an overloaded queue sheds callers instead of growing forever, so sharing policies keep partial service at the cost of abandonment. On the demo at 260 FTE, share-the-shortfall's worst voice service rises from 0% (C) to 51% (A) with peak abandonment of about 16%. The default policy reproduces the pre-balancing engine exactly (regression fixture in `tests/fixtures`).
 
 The complete equations are in `src/lib/equations.ts`. They are included verbatim in the analyst's instructions and in every exported scenario dossier.
 
 ## Measures
 
-- **Service level** (Voice, Chat): the volume-weighted Erlang C service level across the buckets.
+- **Service level** (Voice, Chat): the volume-weighted service level across the buckets, from
+  the service model (Erlang A: answered in time ÷ all offered; Erlang C: no abandonment).
+- **Abandonment** (Erlang A): the volume-weighted abandon rate. Forecast volumes already contain
+  today's redials, so only abandonment above the week-0 rate creates extra contacts: the redial
+  share of them is added to next week's volume (scaled by the share of the book still there),
+  and that week's loads, needs and required FTE are recomputed.
+- **Grade cap** (Erlang A): a week whose worst voice or chat abandon rate is above the cap
+  (default 10%) grades BBB at best; above twice the cap, CCC at best. An unstable Erlang C queue
+  (agents ≤ load) scores 0.05; Erlang A queues are always stable.
 - **Email on-time index**: `min(1, target days ÷ backlog days)`, where backlog days = backlog
   hours ÷ daily arrival hours. It is a first-in-first-out proxy, not a measured turnaround.
 - **Required FTE**: the larger of the peak-bucket requirement (which binds when staffing doesn't
@@ -109,9 +124,11 @@ shows the most-likely inputs; it is not the median of the futures.
 
 ## Limits
 
-- **No abandonment.** Erlang C assumes nobody hangs up, so under overload it shows service
-  near zero where in practice callers abandon and the queue is partly relieved. Read
-  utilisation alongside it.
+- **Service model.** Under Erlang C nobody hangs up, so overload shows service near zero. Under
+  Erlang A, patience is one exponential average per channel (real patience varies by customer and
+  by wait announcements), and abandoners beyond the redial share are assumed lost. Required FTE
+  is sized with Erlang C in both models, which is conservative. Links made before v1.2 open on
+  Erlang C so their numbers reproduce.
 - **Service doesn't feed back into demand.** Clients don't leave because service is poor.
 - **One blended team** with a fixed priority. Specialised teams would need separate pools.
 - **Weekly granularity.** Same-day email targets are approximated by the backlog-days measure.

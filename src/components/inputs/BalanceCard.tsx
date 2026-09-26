@@ -60,7 +60,7 @@ export default function BalanceCard({ value, onChange }: Props) {
         </div>
       )}
       <p className="text-[10px] text-gray-500">
-        Phone and chat queues near capacity don’t degrade gently: a few percent fewer agents can take service from target to near zero (Erlang C, no abandonment). Spreading a shortfall therefore tends to hurt every channel.
+        Phone and chat queues near capacity don’t degrade gently: under Erlang C (nobody hangs up) a few percent fewer agents can take service from target to near zero, so spreading a shortfall tends to hurt every channel. Under Erlang A customers give up instead, which softens the collapse but shows as abandonment.
         {value.mode === 'equal' ? ' Equal attainment maximises the worst channel, which is what the grade measures, so it tends to grade best.' : ''}
       </p>
     </div>

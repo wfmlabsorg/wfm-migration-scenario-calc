@@ -46,6 +46,11 @@ export const PATHS: PathSpec[] = [
   { path: 'after.releasesOn', min: 0, max: 1, boolean: true, describe: 'Release surplus staff after notice (1 yes, 0 no)' },
   { path: 'after.noticeWeeks', min: 0, max: 26, integer: true, describe: 'Notice weeks before releases' },
   { path: 'after.releaseBuffer', min: 0, max: 0.5, describe: 'Headroom kept above need when releasing' },
+  { path: 'service.useErlangA', min: 0, max: 1, boolean: true, describe: 'Delivered service model: 1 Erlang A (customers abandon), 0 Erlang C (nobody abandons). Required FTE is always sized with Erlang C' },
+  { path: 'service.patience.voice', min: 5, max: 3600, describe: 'Erlang A: mean seconds a waiting caller stays before hanging up' },
+  { path: 'service.patience.chat', min: 5, max: 3600, describe: 'Erlang A: mean seconds a waiting chat customer stays before leaving' },
+  { path: 'service.redialRate', min: 0, max: 1, describe: 'Erlang A: share of extra abandoners who try again next week (0–1)' },
+  { path: 'service.abandonCap', min: 0.01, max: 0.5, describe: 'Erlang A: worst voice/chat abandonment above this caps the week at BBB, above twice it at CCC' },
   { path: 'balance.emailFloor', min: 0, max: 1, describe: 'Protect-email policy: share of email arrivals guaranteed first (0–1)' },
   { path: 'borrowed.fte', min: 0, max: 2000, describe: 'Borrowed FTE from another site' },
   { path: 'borrowed.startWeek', min: 0, max: 77, integer: true, describe: 'First week borrowed staff help' },
@@ -80,6 +85,10 @@ export function applyChanges(base: Inputs, c: Changes): Inputs {
     if (!Number.isFinite(v) || v < spec.min || v > spec.max) throw new Error(`${ch.path} must be between ${spec.min} and ${spec.max} (got ${ch.value})`)
     if (spec.integer && !Number.isInteger(v)) throw new Error(`${ch.path} must be a whole number (got ${ch.value})`)
     if (spec.boolean && v !== 0 && v !== 1) throw new Error(`${ch.path} must be 0 or 1 (got ${ch.value})`)
+    if (ch.path === 'service.useErlangA') {
+      next.service.model = v === 1 ? 'A' : 'C'
+      continue
+    }
     const keys = ch.path.split('.')
     let node = next as unknown as Record<string, unknown>
     for (const k of keys.slice(0, -1)) node = node[k] as Record<string, unknown>

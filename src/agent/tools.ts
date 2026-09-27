@@ -98,6 +98,7 @@ export class AgentTools {
           stepDowns: stepDowns?.length ? stepDowns : undefined,
           balance: balance?.length ? { mode: balance[0].mode, order: balance[0].order, emailFloor: balance[0].email_floor } : undefined,
           book: book?.length ? book[0] : undefined,
+          shrinkSpikes: (input.shrink_spikes as { startWeek: number; weeks: number; pts: number }[] | undefined)?.length ? (input.shrink_spikes as { startWeek: number; weeks: number; pts: number }[]) : undefined,
         })
         const result = run(inputs)
         this.runs.set(label, { inputs, result })

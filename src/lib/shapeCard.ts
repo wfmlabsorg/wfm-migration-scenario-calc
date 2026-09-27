@@ -12,7 +12,7 @@ import { cloneDefaults } from './defaults'
 import { run } from './engine'
 import { PATH_META } from './questions'
 import { clampTriple, defaultRegister, sanitiseRegister, syncRegister } from './register'
-import { sanitiseQuestions } from './share'
+import { sanitiseQuestions, sanitiseSpikes } from './share'
 import type { Assumption, Inputs, ProjectQuestion, Triple } from './types'
 
 export const CARD_FORMAT_1 = 'wfm-migration-shape-card/1'
@@ -233,6 +233,7 @@ export function fromShapeCard(raw: unknown, teamFte = 250): Inputs {
   }
   inp.assumptions = reg
   inp.projectQuestions = sanitiseQuestions(card.questions)
+  inp.seasonality = { spikes: sanitiseSpikes((card.scenario as { seasonality?: { spikes?: unknown } }).seasonality?.spikes) }
   inp.uncertainty.enabled = true
   syncRegister(inp)
   return inp

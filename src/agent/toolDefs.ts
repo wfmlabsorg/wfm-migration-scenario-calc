@@ -36,6 +36,16 @@ const stepDownsSchema = {
     additionalProperties: false,
   },
 }
+const shrinkSpikesSchema = {
+  type: 'array',
+  description: 'Replacement seasonal shrinkage spikes (e.g. summer holidays): startWeek (from week 0), weeks, pts = extra shrinkage 0–0.5. Empty = keep the current spikes; to remove them all pass one item with weeks 0.',
+  items: {
+    type: 'object',
+    properties: { startWeek: { type: 'integer' }, weeks: { type: 'integer' }, pts: { type: 'number' } },
+    required: ['startWeek', 'weeks', 'pts'],
+    additionalProperties: false,
+  },
+}
 const balanceSchema = {
   type: 'array',
   description: 'Replacement channel-balancing policy: 0 or 1 item. mode: priority (order matters; last absorbs the shortfall), floor (email_floor share of email arrivals guaranteed first, then order without email), prorata (every channel the same fraction of its need), equal (every channel the same attainment). order: voice, chat and email once each. Empty = keep the current policy.',
@@ -92,8 +102,8 @@ export const TOOL_DEFS = [
     strict: false,
     input_schema: {
       type: 'object',
-      properties: { label: { type: 'string', description: 'Short unique label, e.g. "borrow15".' }, changes: changesSchema, waves: wavesSchema, step_downs: stepDownsSchema, balance: balanceSchema, book: bookSchema },
-      required: ['label', 'changes', 'waves', 'step_downs', 'balance', 'book'],
+      properties: { label: { type: 'string', description: 'Short unique label, e.g. "borrow15".' }, changes: changesSchema, waves: wavesSchema, step_downs: stepDownsSchema, balance: balanceSchema, book: bookSchema, shrink_spikes: shrinkSpikesSchema },
+      required: ['label', 'changes', 'waves', 'step_downs', 'balance', 'book', 'shrink_spikes'],
       additionalProperties: false,
     },
   },

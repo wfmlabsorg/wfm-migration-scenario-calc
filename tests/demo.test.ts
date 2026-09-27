@@ -41,3 +41,13 @@ describe('default demo: travel-counsellor team', () => {
     expect(back.channels.voice.volume / DEFAULTS.channels.voice.volume).toBeCloseTo(1, 1)
   })
 })
+
+describe('headline backlog counts scored weeks only', () => {
+  test('a residual sliver after the book has gone does not set the worst backlog', () => {
+    const i = cloneDefaults()
+    const r = run(i)
+    const k = kpis(i, r)
+    const scored = r.weeks.filter((w) => w.email.scored).map((w) => w.email.backlogDays)
+    expect(k.worstEmailBacklogDays).toBe(Math.max(0, ...scored))
+  })
+})

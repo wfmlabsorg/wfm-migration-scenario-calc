@@ -72,7 +72,8 @@ export function kpis(inp: Inputs, r: RunResult): Kpis {
     },
     peakUtilisation: Math.max(0, ...r.weeks.map((w) => (Number.isFinite(w.utilisation) ? w.utilisation : 0))),
     largestFteGap: gap ? { week: gap.week, fte: Math.max(0, gap.fteReq - gap.fteAvail) } : { week: 0, fte: 0 },
-    worstEmailBacklogDays: Math.max(0, ...r.weeks.map((w) => w.email.backlogDays)),
+    // scored weeks only, like every other headline: once the book has gone, a sliver's backlog is not a result
+    worstEmailBacklogDays: Math.max(0, ...r.weeks.filter((w) => w.email.scored).map((w) => w.email.backlogDays)),
     peakAbandonment: { voice: peak('voice'), chat: peak('chat') },
     totalAbandoned: { voice: r.weeks.reduce((s, w) => s + w.voice.abandoned, 0), chat: r.weeks.reduce((s, w) => s + w.chat.abandoned, 0) },
     gradeCappedByAbandonment: capped,

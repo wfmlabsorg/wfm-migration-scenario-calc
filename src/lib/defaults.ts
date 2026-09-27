@@ -17,6 +17,8 @@ export const DEFAULTS: Inputs = {
     email: { volume: 12600, aht: 600, targetDays: 1 }, // email and other deferrable work
   },
   pool: { fte: 100, shrinkage: 0.25, paidHours: 37.5, openHours: 55 },
+  // summer holidays: +15 points of shrinkage for three weeks (weeks counted from week 0)
+  seasonality: { spikes: [{ startWeek: 8, weeks: 3, pts: 0.15, label: 'Summer holidays' }] },
   profile: { volumeShare: [0.45, 0.4, 0.15], hourShare: [0.3, 0.45, 0.25], scheduleFit: 0.85 },
   attrition: { annual: 0.14, tensionMult: 1.5, postMult: 2.5 },
   freeze: { startWeek: 2, endWeek: 16, backfillBefore: true },

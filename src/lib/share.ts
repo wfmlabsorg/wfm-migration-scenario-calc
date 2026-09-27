@@ -3,7 +3,7 @@
 import { sanitiseBook, sanitisePeople } from './book'
 import { DEFAULTS } from './defaults'
 import { defaultRegister, migrateV12Uncertainty, sanitiseRegister } from './register'
-import type { Inputs, ProjectQuestion } from './types'
+import type { Inputs, ProjectQuestion, ShrinkSpike } from './types'
 import { SHORT } from './version'
 
 function merge<T>(base: T, patch: unknown): T {
@@ -32,6 +32,21 @@ export function sanitiseQuestions(raw: unknown): ProjectQuestion[] {
     .filter((q): q is ProjectQuestion => !!q && typeof q.id === 'string' && typeof q.text === 'string' && Array.isArray(q.sets))
     .slice(0, 40)
     .map((q) => ({ id: q.id.slice(0, 20), text: q.text.slice(0, 200), sets: q.sets.filter((x) => typeof x === 'string').slice(0, 8) }))
+}
+
+/** Seasonal shrinkage spikes from a link or card: at most 6, whole weeks, 0–0.5 extra shrinkage. */
+export function sanitiseSpikes(raw: unknown): ShrinkSpike[] {
+  if (!Array.isArray(raw)) return []
+  const out: ShrinkSpike[] = []
+  for (const x of raw.slice(0, 6)) {
+    if (!x || typeof x !== 'object') continue
+    const s = x as Record<string, unknown>
+    const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN)
+    const start = Math.round(n(s.startWeek)), weeks = Math.round(n(s.weeks)), pts = n(s.pts)
+    if (!(start >= 0 && start <= 77 && weeks >= 1 && weeks <= 26 && pts >= 0 && pts <= 0.5)) continue
+    out.push({ startWeek: start, weeks, pts, ...(typeof s.label === 'string' && s.label ? { label: s.label.slice(0, 40) } : {}) })
+  }
+  return out
 }
 
 export function encode(inputs: Inputs): string {
@@ -70,6 +85,8 @@ export function decode(hash: string): Inputs | null {
     // links made before v1.4 have neither block: one stock, manual departures
     inputs.people = sanitisePeople(saved?.people, DEFAULTS.people)
     inputs.book = sanitiseBook(saved?.book, DEFAULTS.book)
+    // links made before v1.4.1 have no seasonality: none (not the demo's summer spike)
+    inputs.seasonality = { spikes: sanitiseSpikes(saved?.seasonality?.spikes) }
     // links made before v1.3 carried five PERT ranges instead of an assumption register;
     // every question the link does not answer starts unasked (its generic range)
     const saved_ = saved && typeof saved === 'object' && 'assumptions' in saved ? sanitiseRegister(saved.assumptions) : migrateV12Uncertainty(saved?.uncertainty)

@@ -6,7 +6,8 @@ import type { ToolEvent } from '../agent/loop'
 import { run } from './engine'
 import { EQUATIONS } from './equations'
 import { scoreToGrade } from './grade'
-import { kpis } from './kpis'
+import { kpis, worstWeek } from './kpis'
+import { PATH_META, QUESTIONS, STATUS_LABEL } from './questions'
 import { toHash } from './share'
 import type { Inputs, RunResult, WeekTrace } from './types'
 import { codeUrl, COMMIT, ENGINE_VERSION, REPO, SHORT } from './version'
@@ -25,6 +26,7 @@ const n = (x: number, d = 1) => (Number.isFinite(x) ? x.toLocaleString('en-US', 
 const row = (cells: (string | number)[]) => `| ${cells.join(' | ')} |`
 
 function assumptions(i: Inputs): string {
+  const bookMode = i.book?.mode === 'book'
   const c = i.channels
   const groups: [string, [string, string, string][]][] = [
     ['Channels', [
@@ -49,16 +51,37 @@ function assumptions(i: Inputs): string {
       ['Backfill before freeze', i.freeze.backfillBefore ? 'yes' : 'no', 'Leavers replaced before the freeze starts'],
     ]],
     ['Demand change', [
-      ['Runoff', `${pct(i.demand.runoffPctWeek, 1)} a week from week ${i.demand.runoffStartWeek ?? i.freeze.startWeek}`, 'Existing book lost each week'],
-      ['Step-downs', i.demand.stepDowns.map((s) => `week ${s.week}: −${pct(s.pct)}`).join('; ') || 'none', 'Share of the existing book removed that week (e.g. contract ends)'],
+      ['Runoff', `${pct(i.demand.runoffPctWeek, 1)} a week from week ${i.demand.runoffStartWeek ?? i.freeze.startWeek}${bookMode ? ' — ignored (book mode)' : ''}`, 'Existing book lost each week'],
+      ['Step-downs', (i.demand.stepDowns.map((s) => `week ${s.week}: −${pct(s.pct)}`).join('; ') || 'none') + (bookMode ? ' — ignored (book mode)' : ''), 'Share of the existing book removed that week (e.g. contract ends)'],
       ['Intake', i.demand.intakeOn ? `on, replaces ${pct(i.demand.intakePct)} of runoff` : 'off', 'New demand taken on'],
     ]],
     ['After the freeze', [
       ['Attrition after announcement', `× ${i.attrition.postMult}`, 'Attrition multiplier after the freeze ends'],
       ['Absence surge', `+${pct(i.after.surgePts)} shrinkage for ${i.after.surgeWeeks} weeks`, 'Extra absence after the announcement'],
-      ['Waves', i.after.waves.map((w, k) => `${k + 1}: ${pct(w.pct)} of the book at freeze end + ${w.weeksAfterFreeze} wk`).join('; ') || 'none', 'Work and the same share of staff move out'],
+      ['Waves', (i.after.waves.map((w, k) => `${k + 1}: ${pct(w.pct)} of the book at freeze end + ${w.weeksAfterFreeze} wk`).join('; ') || 'none') + (bookMode ? ' — ignored (book mode; see Book of business)' : ''), 'Work and the same share of staff move out'],
       ['Training', `${i.after.trainingHours} h per transferee over ${i.after.trainingWeeks} weeks before each wave`, 'Time off the floor before cutover'],
       ['Releases', i.after.releasesOn ? `on, after ${i.after.noticeWeeks} weeks' notice, ${pct(i.after.releaseBuffer)} buffer` : 'off', 'Surplus staff released'],
+    ]],
+    ['Book of business', i.book?.mode === 'book' ? [
+      ['Mode', 'described by shares', 'Departure curve derived from contract mix, relationship health, fate priors and notice periods; step-downs, runoff and manual waves ignored'],
+      ['Contract mix (fixed / rolling / rolling with TfC)', `${pct(i.book.contractMix.fixed)} / ${pct(i.book.contractMix.evergreen)} / ${pct(i.book.contractMix.tfc)}`, 'Shares of workload'],
+      ['Fixed-term expiries', `weeks ${i.book.fixedExpiry[0]}–${i.book.fixedExpiry[1]}`, 'Fixed-term work expires uniformly over this window'],
+      ['Relationship health (green / amber / red)', `${pct(i.book.healthMix.green)} / ${pct(i.book.healthMix.amber)} / ${pct(i.book.healthMix.red)}`, 'Shares of workload'],
+      ['Fate by health (transfer / leave / re-platform)', (['green', 'amber', 'red'] as const).map((h) => `${h}: ${pct(i.book.priors[h].transfer)} / ${pct(i.book.priors[h].exit)} / ${pct(i.book.priors[h].replatform)}`).join('; '), 'Probabilities per health band'],
+      ['Exit notice (rolling / with TfC)', `${i.book.exitNotice.evergreen.join(' · ')} / ${i.book.exitNotice.tfc.join(' · ')} wk after freeze end`, 'PERT low · likely · high; an exit after its wave transfers instead'],
+      ['Re-platform timing', `${i.book.replatformOffset.join(' · ')} wk after freeze end`, 'PERT low · likely · high, capped at the wave'],
+      ['Transfer waves', i.book.waves.map((w, k) => `${k + 1}: ${pct(w.pct)} of transfers at freeze end + ${w.weeksAfterFreeze} wk`).join('; ') || 'none', 'Shares of transferring work; remainder at the last wave'],
+      ['Wave slip', `${i.book.waveSlip.join(' · ')} wk`, 'Added to every wave (PERT)'],
+      ['Client-equivalents per future', `${i.book.granularity}`, 'Monte Carlo granularity of the sampled staircase'],
+    ] : [
+      ['Mode', 'manual', 'Runoff, step-downs and waves entered by hand (see Demand change and After the freeze)'],
+    ]],
+    ['People', i.people?.split ? [
+      ['Split at announcement', 'yes', 'Team splits into a transfer group and a release group at the freeze end'],
+      ['Attrition after announcement (transfer / release)', `× ${i.people.postMultTransfer} / × ${i.people.postMultRelease}`, 'Multipliers on the base rate per group'],
+      ['Retention offer', i.people.retentionEffect > 0 ? `cuts leaving by ${pct(i.people.retentionEffect)} for ${i.people.retentionTarget === 'both' ? 'both groups' : `the ${i.people.retentionTarget} group`}` : 'none', 'Lever, applied after the announcement'],
+    ] : [
+      ['Split at announcement', 'no', 'One stock of staff; the single multiplier under "After the freeze" applies'],
     ]],
     ['Borrowed capacity', [
       ['Borrowed', i.borrowed.fte > 0 ? `${i.borrowed.fte} FTE, weeks ${i.borrowed.startWeek}–${i.borrowed.endWeek}` : 'none', 'Staff lent from elsewhere'],
@@ -84,13 +107,75 @@ function assumptions(i: Inputs): string {
   if (i.uncertainty.enabled) {
     const u = i.uncertainty
     groups.push(['Uncertainty (Monte Carlo)', [
-      ['Futures / seed', `${u.draws} / ${u.seed}`, 'Simulated futures; random seed'],
-      ['Freeze length (weeks)', u.freezeLength.join(' · '), 'PERT low · likely · high'],
-      ['Tension × / post ×', `${u.tensionMult.join(' · ')} / ${u.postMult.join(' · ')}`, 'PERT ranges'],
-      ['Surge / runoff', `${u.surgePts.join(' · ')} / ${u.runoffPctWeek.join(' · ')}`, 'PERT ranges (fractions)'],
+      ['Futures / seed', `${u.draws} / ${u.seed}`, 'Simulated futures; random seed. Every register entry with a range is drawn (see Assumption register)'],
     ]])
   }
   return groups.map(([g, rows]) => [`### ${g}`, '', '| Input | Value | Meaning |', '|---|---|---|', ...rows.map((r) => row(r)), ''].join('\n')).join('\n')
+}
+
+const fmtV = (path: string, x: number) => {
+  const u = PATH_META[path]?.unit
+  if (u === 'pct') return pct(x, 1)
+  const v = Number(x.toPrecision(4)).toLocaleString('en-US')
+  return u === 'x' ? `${v}×` : u === 'sec' ? `${v} s` : u === 'weeks' ? `${v} wk` : u === 'hours' ? `${v} h` : v
+}
+const STRUCTURED_LABEL: Record<string, string> = {
+  'after.waves': 'Transfer waves',
+  'demand.stepDowns': 'Step-downs',
+  'freeze.backfillBefore': 'Backfill before freeze',
+  'channels.targets': 'Service targets',
+  'book.fixedExpiry': 'Fixed-term expiry window',
+  'book.priors': 'Fate by health',
+  'book.exitNotice': 'Exit notice ranges',
+  'book.replatformOffset': 'Re-platform timing',
+  'book.waveSlip': 'Wave slip',
+}
+
+function registerSection(i: Inputs): string {
+  const qs = [...i.projectQuestions.map((q) => ({ ...q, group: 'Project' })), ...QUESTIONS]
+  const lines = ['| Question | Input | Low · likely · high | Status | Owner / note |', '|---|---|---|---|---|']
+  const open: string[] = []
+  for (const q of qs)
+    for (const path of q.sets) {
+      const a = i.assumptions[path]
+      if (!a) continue
+      const range = a.range ? a.range.map((x) => fmtV(path, x)).join(' · ') : '—'
+      lines.push(row([`${q.id}: ${q.text}`, PATH_META[path]?.label ?? STRUCTURED_LABEL[path] ?? path, range, STATUS_LABEL[a.status], [a.owner, a.note].filter(Boolean).join(' — ')]))
+      if (a.status === 'default' && !open.includes(`${q.id}: ${q.text}`)) open.push(`${q.id}: ${q.text}`)
+    }
+  return [
+    'Each uncertain input carries a range and a status. Not asked = a generic range; estimated = someone gave a range; confirmed = signed off. The on-screen scenario uses the likely values; with uncertainty on, every range is drawn.',
+    '',
+    ...lines,
+    '',
+    '**Open questions** (still on generic ranges; answering them narrows the forecast):',
+    '',
+    ...(open.length ? open.map((q) => `- ${q}`) : ['- none']),
+    '',
+  ].join('\n')
+}
+
+/** The attrition arithmetic of the worked example: one stock, or two groups after the split. */
+function attritionLines(i: Inputs, t: WeekTrace): string[] {
+  const h = t.headcount
+  const base = i.attrition.annual / 52
+  const g = h as WeekTrace['headcount'] & { lostTransfer?: number; lostRelease?: number }
+  if (i.people?.split && t.phase === 'post' && typeof g.transferGroup === 'number' && typeof g.releaseGroup === 'number') {
+    const p = i.people
+    const rhoT = p.retentionTarget === 'transfer' || p.retentionTarget === 'both' ? p.retentionEffect : 0
+    const rhoR = p.retentionTarget === 'release' || p.retentionTarget === 'both' ? p.retentionEffect : 0
+    const qT = Math.min(1, base * p.postMultTransfer * (1 - rhoT))
+    const qR = Math.min(1, base * p.postMultRelease * (1 - rhoR))
+    const lostT = typeof g.lostTransfer === 'number' ? g.lostTransfer : g.transferGroup * qT
+    const lostR = typeof g.lostRelease === 'number' ? g.lostRelease : g.releaseGroup * qR
+    return [
+      `- The team is split (announcement week ${i.freeze.endWeek}${typeof g.transferShareAtSplit === 'number' ? `, transfer share ${pct(g.transferShareAtSplit, 1)}` : ''}): transfer group ${n(g.transferGroup, 2)}, release group ${n(g.releaseGroup, 2)} heads at the start of the week.`,
+      `- Transfer group: q = ${pct(i.attrition.annual)} ÷ 52 × ${p.postMultTransfer}${rhoT ? ` × (1 − ${pct(rhoT)})` : ''} = ${pct(qT, 3)}; lost ${n(lostT, 2)}.`,
+      `- Release group: q = ${pct(i.attrition.annual)} ÷ 52 × ${p.postMultRelease}${rhoR ? ` × (1 − ${pct(rhoR)})` : ''} = ${pct(qR, 3)}; lost ${n(lostR, 2)}.`,
+      `- Lost in total ${n(h.lost, 2)}. Hired ${n(h.hired, 2)}; released ${n(h.released, 2)} (release group only).`,
+    ]
+  }
+  return [`- Attrition rate q = ${pct(i.attrition.annual)} ÷ 52 × ${h.attritionMultiplier} = ${pct(h.attritionRate, 3)}; lost ${n(h.lost, 2)}. Hired ${n(h.hired, 2)}; released ${n(h.released, 2)}.`]
 }
 
 function workedExample(i: Inputs, t: WeekTrace): string {
@@ -106,7 +191,7 @@ function workedExample(i: Inputs, t: WeekTrace): string {
     '',
     '**1. Headcount**',
     `- Start ${n(h.start, 2)} heads; waves move out ${n(h.moved, 2)}.`,
-    `- Attrition rate q = ${pct(i.attrition.annual)} ÷ 52 × ${h.attritionMultiplier} = ${pct(h.attritionRate, 3)}; lost ${n(h.lost, 2)}. Hired ${n(h.hired, 2)}; released ${n(h.released, 2)}.`,
+    ...attritionLines(i, t),
     `- End = ${n(h.start, 2)} − ${n(h.moved, 2)} − ${n(h.lost, 2)} + ${n(h.hired, 2)} − ${n(h.released, 2)} = **${n(h.end, 2)}**.`,
     '',
     '**2. Productive hours**',
@@ -138,13 +223,15 @@ function workedExample(i: Inputs, t: WeekTrace): string {
   return lines.join('\n')
 }
 
-function weeklyTable(r: RunResult): string {
-  const head = '| Wk | Phase | Heads | FTE avail | FTE req | Voice SL | Voice ab | Chat SL | Chat ab | Email on-time | Backlog d | Util | Grade |'
+function weeklyTable(r: RunResult, split = false): string {
+  const groupHead = split ? ' Transfer grp | Release grp |' : ''
+  const head = `| Wk | Phase | Heads |${groupHead} FTE avail | FTE req | Voice SL | Voice ab | Chat SL | Chat ab | Email on-time | Backlog d | Util | Grade |`
   const rows = r.weeks.map((w) => row([
-    w.week, w.phase, n(w.heads), n(w.fteAvail), n(w.fteReq), pct(w.voice.sl), pct(w.voice.abandonRate), pct(w.chat.sl), pct(w.chat.abandonRate), pct(w.email.timeliness),
-    n(w.email.backlogDays, 2), pct(w.utilisation), Number.isFinite(w.score) ? scoreToGrade(w.score).grade : '—',
+    w.week, w.phase, n(w.heads), ...(split ? [w.groups ? n(w.groups.transfer) : '—', w.groups ? n(w.groups.release) : '—'] : []),
+    n(w.fteAvail), n(w.fteReq), pct(w.voice.sl), pct(w.voice.abandonRate), pct(w.chat.sl), pct(w.chat.abandonRate), pct(w.email.timeliness),
+    n(w.email.backlogDays, 2), pct(w.utilisation), Number.isFinite(w.score) ? scoreToGrade(w.score).grade : '— (no work left)',
   ]))
-  return [head, '|---|---|---|---|---|---|---|---|---|---|---|---|---|', ...rows].join('\n')
+  return [head, '|---|---|---|' + (split ? '---|---|' : '') + '---|---|---|---|---|---|---|---|---|---|', ...rows].join('\n')
 }
 
 function toolSummary(t: ToolEvent): string {
@@ -193,8 +280,15 @@ When you use it:
 export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat: ChatEntry[] = [], now = new Date()): string {
   const k = kpis(inputs, result)
   const link = `${pageUrl.split('#')[0]}#${toHash(inputs)}`
-  const worst = k.worstWeek ?? 0
+  const worstW = worstWeek(inputs, result)
+  const worst = worstW?.week ?? k.worstWeek ?? 0
   const trace = run(inputs, { traceWeek: worst }).trace!
+  const worstChannel = !worstW ? '' : [
+    worstW.voice.scored ? { k: `Voice SL ${pct(worstW.voice.sl)}`, a: worstW.voice.sl / inputs.channels.voice.slTarget } : null,
+    worstW.chat.scored ? { k: `Chat SL ${pct(worstW.chat.sl)}`, a: worstW.chat.sl / inputs.channels.chat.slTarget } : null,
+    worstW.email.scored ? { k: `Email ${pct(worstW.email.timeliness)} on time`, a: worstW.email.timeliness } : null,
+  ].filter((x): x is { k: string; a: number } => !!x).sort((x, y) => x.a - y.a)[0]?.k ?? ''
+  const worstText = worstW ? `${worst} (${scoreToGrade(worstW.score).grade}; ${worstChannel})` : '—'
   const parts = [
     '# Migration scenario dossier',
     '',
@@ -210,7 +304,7 @@ export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat
     '',
     '| Measure | Value |',
     '|---|---|',
-    row(['Worst week', `${k.worstWeek ?? '—'} (${k.worstGrade}; ${k.worstChannel})`]),
+    row(['Worst week', worstText]),
     row(['Weeks below target: voice · chat · email', `${k.weeksBelowTarget.voice} · ${k.weeksBelowTarget.chat} · ${k.weeksBelowTarget.email}`]),
     row(['Peak utilisation', pct(k.peakUtilisation)]),
     row(['Peak abandonment: voice · chat', inputs.service.model === 'A' ? `${pct(k.peakAbandonment.voice.rate, 1)} (week ${k.peakAbandonment.voice.week}) · ${pct(k.peakAbandonment.chat.rate, 1)} (week ${k.peakAbandonment.chat.week})` : 'n/a (Erlang C: nobody abandons)']),
@@ -222,6 +316,9 @@ export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat
     '## 3. Assumptions',
     '',
     assumptions(inputs),
+    '### Assumption register',
+    '',
+    registerSection(inputs),
     '## 4. Approach',
     '',
     'A weekly simulation of one blended team. Each week: work arrives (after runoff, step-downs, intake and any migration waves); the team shrinks through waves, attrition and releases (and is backfilled only before the freeze); productive hours are reduced by shrinkage, the absence surge and training; the balancing policy shares those hours between voice and chat (queues in three intraday buckets, sized with Erlang C) and email (a backlog); service (Erlang A with abandonment, or Erlang C), abandonment, required and available FTE and a grade are computed. The equations below are exactly what the engine runs.',
@@ -236,7 +333,7 @@ export function dossier(inputs: Inputs, result: RunResult, pageUrl: string, chat
     '',
     '## 7. Weekly results',
     '',
-    weeklyTable(result),
+    weeklyTable(result, !!inputs.people?.split),
     '',
   ]
   if (result.warnings.length) parts.push('Warnings: ' + result.warnings.join(' '), '')

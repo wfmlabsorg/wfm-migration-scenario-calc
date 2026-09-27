@@ -96,3 +96,14 @@ input[type="number"] {
 .dark .text-blue-600 { color: #22d3ee; }
 .dark .bg-blue-50, .dark .bg-green-50, .dark .bg-cyan-50, .dark .bg-red-50 { background-color: rgba(34,211,238,0.06); }
 
+
+/* Round 5: touch targets and the book card's advanced section */
+input[type="checkbox"] {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+}
+details[open] > summary .details-chevron {
+  display: inline-block;
+  transform: rotate(90deg);
+}

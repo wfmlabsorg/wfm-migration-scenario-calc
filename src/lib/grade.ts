@@ -3,7 +3,7 @@
 // service view.
 //
 // Deterministic score (most-likely inputs):
-//   every channel meets target  -> 0.70 + 0.30 × min(1, (cover − 1) / 0.10); AA from ~3% headroom, AAA from ~7%
+//   every channel meets target  -> 0.70 + 0.30 × clamp((cover − 1) / 0.10, 0, 1): at least an A; AA from ~3% headroom, AAA from ~7%
 //   some channel misses         -> 0.70 × (worst attainment − 0.5) / 0.5
 //   a queue cannot keep up      -> 0.05 (D-)
 // Monte Carlo score: the share of simulated futures in which every channel meets target.

@@ -1,0 +1,453 @@
+{
+  "format": "wfm-migration-shape-card/2",
+  "title": "Migration scenario (from the desktop pack)",
+  "created": "2026-09-26",
+  "note": "The book travels as shares (contract and health mix, fate priors, notice ranges, waves); the modeler draws real staircases from them. One blended team stands in for the pack's pools.",
+  "occupancy": 0.7664,
+  "mix": {
+    "voice": 0.7825,
+    "chat": 0.0,
+    "email": 0.2175
+  },
+  "borrowedShare": 0.0,
+  "stepDownsRelativeToFreezeEnd": false,
+  "scenario": {
+    "horizonWeeks": 52,
+    "channels": {
+      "voice": {
+        "aht": 502,
+        "slTarget": 0.8,
+        "slSeconds": 60
+      },
+      "chat": {
+        "aht": 600,
+        "slTarget": 0.8,
+        "slSeconds": 60
+      },
+      "email": {
+        "targetDays": 2.0
+      }
+    },
+    "pool": {
+      "shrinkage": 0.3163,
+      "paidHours": 37.5,
+      "openHours": 55.0
+    },
+    "profile": {
+      "volumeShare": [
+        0.45,
+        0.4,
+        0.15
+      ],
+      "hourShare": [
+        0.3,
+        0.45,
+        0.25
+      ],
+      "scheduleFit": 0.85
+    },
+    "attrition": {
+      "annual": 0.15,
+      "tensionMult": 1.4,
+      "postMult": 3.0
+    },
+    "freeze": {
+      "startWeek": 0,
+      "endWeek": 15,
+      "backfillBefore": false
+    },
+    "demand": {
+      "runoffPctWeek": 0.0,
+      "stepDowns": [
+        {
+          "week": 4,
+          "pct": 0.0126
+        },
+        {
+          "week": 17,
+          "pct": 0.008
+        },
+        {
+          "week": 19,
+          "pct": 0.0211
+        },
+        {
+          "week": 20,
+          "pct": 0.016
+        },
+        {
+          "week": 21,
+          "pct": 0.0259
+        },
+        {
+          "week": 22,
+          "pct": 0.0265
+        },
+        {
+          "week": 23,
+          "pct": 0.0165
+        },
+        {
+          "week": 24,
+          "pct": 0.0171
+        },
+        {
+          "week": 25,
+          "pct": 0.0156
+        },
+        {
+          "week": 26,
+          "pct": 0.016
+        },
+        {
+          "week": 27,
+          "pct": 0.0069
+        },
+        {
+          "week": 30,
+          "pct": 0.0461
+        }
+      ],
+      "intakeOn": false
+    },
+    "after": {
+      "waves": [
+        {
+          "weeksAfterFreeze": 6,
+          "pct": 0.2722
+        },
+        {
+          "weeksAfterFreeze": 12,
+          "pct": 0.5066
+        },
+        {
+          "weeksAfterFreeze": 18,
+          "pct": 0.221
+        }
+      ],
+      "trainingHours": 24.0,
+      "trainingWeeks": 6,
+      "surgePts": 0.04,
+      "surgeWeeks": 52,
+      "releasesOn": true,
+      "noticeWeeks": 6,
+      "releaseBuffer": 0.05,
+      "lookaheadWeeks": 2
+    },
+    "borrowed": {
+      "startWeek": 8,
+      "endWeek": 51,
+      "ahtPenalty": 1.2
+    },
+    "service": {
+      "model": "A",
+      "patience": {
+        "voice": 120.0,
+        "chat": 300.0
+      },
+      "redialRate": 0.4,
+      "abandonCap": 0.1
+    },
+    "book": {
+      "mode": "book",
+      "contractMix": {
+        "fixed": 0.6295,
+        "evergreen": 0.159,
+        "tfc": 0.2115
+      },
+      "fixedExpiry": [
+        0,
+        89
+      ],
+      "healthMix": {
+        "green": 0.4465,
+        "amber": 0.3918,
+        "red": 0.1617
+      },
+      "priors": {
+        "green": {
+          "transfer": 0.85,
+          "exit": 0.1,
+          "replatform": 0.05
+        },
+        "amber": {
+          "transfer": 0.65,
+          "exit": 0.25,
+          "replatform": 0.1
+        },
+        "red": {
+          "transfer": 0.35,
+          "exit": 0.55,
+          "replatform": 0.1
+        }
+      },
+      "exitNotice": {
+        "evergreen": [
+          8.0,
+          13.0,
+          26.0
+        ],
+        "tfc": [
+          4.0,
+          6.0,
+          13.0
+        ]
+      },
+      "replatformOffset": [
+        4.0,
+        8.0,
+        16.0
+      ],
+      "waves": [
+        {
+          "weeksAfterFreeze": 6,
+          "pct": 0.2953
+        },
+        {
+          "weeksAfterFreeze": 12,
+          "pct": 0.4975
+        },
+        {
+          "weeksAfterFreeze": 18,
+          "pct": 0.2072
+        }
+      ],
+      "waveSlip": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "granularity": 40
+    },
+    "people": {
+      "split": true,
+      "postMultTransfer": 1.2,
+      "postMultRelease": 3.0,
+      "retentionEffect": 0.0,
+      "retentionTarget": "release"
+    }
+  },
+  "assumptions": {
+    "freeze.startWeek": {
+      "range": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "status": "default"
+    },
+    "freeze.length": {
+      "range": [
+        8.0,
+        15.0,
+        26.0
+      ],
+      "status": "default",
+      "note": "From the pack's freeze end range; the likely value is the median draw"
+    },
+    "attrition.annual": {
+      "range": [
+        0.15,
+        0.15,
+        0.15
+      ],
+      "status": "default"
+    },
+    "attrition.tensionMult": {
+      "range": [
+        1.0,
+        1.4,
+        2.2
+      ],
+      "status": "default"
+    },
+    "attrition.postMult": {
+      "range": [
+        1.5,
+        3.0,
+        5.0
+      ],
+      "status": "default",
+      "note": "Release group; the transfer group is milder in the pack"
+    },
+    "after.surgePts": {
+      "range": [
+        0.0,
+        0.04,
+        0.1
+      ],
+      "status": "default"
+    },
+    "after.trainingHours": {
+      "range": [
+        24.0,
+        24.0,
+        24.0
+      ],
+      "status": "default"
+    },
+    "after.noticeWeeks": {
+      "range": [
+        6.0,
+        6.0,
+        6.0
+      ],
+      "status": "default"
+    },
+    "service.patience.voice": {
+      "range": [
+        120.0,
+        120.0,
+        120.0
+      ],
+      "status": "default"
+    },
+    "service.patience.chat": {
+      "range": [
+        300.0,
+        300.0,
+        300.0
+      ],
+      "status": "default"
+    },
+    "service.redialRate": {
+      "range": [
+        0.4,
+        0.4,
+        0.4
+      ],
+      "status": "default"
+    },
+    "after.waves": {
+      "status": "estimated",
+      "note": "Transferred work by wave, expected over the pack's draws"
+    },
+    "demand.stepDowns": {
+      "status": "estimated",
+      "note": "Exits and re-platforming, expected over the pack's draws"
+    },
+    "book.contractMix.fixed": {
+      "range": [
+        0.5295,
+        0.6295,
+        0.7295
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.contractMix.evergreen": {
+      "range": [
+        0.059,
+        0.159,
+        0.259
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.contractMix.tfc": {
+      "range": [
+        0.1115,
+        0.2115,
+        0.3115
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.healthMix.green": {
+      "range": [
+        0.3465,
+        0.4465,
+        0.5465
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.healthMix.amber": {
+      "range": [
+        0.2918,
+        0.3918,
+        0.4918
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.healthMix.red": {
+      "range": [
+        0.0617,
+        0.1617,
+        0.2617
+      ],
+      "status": "estimated",
+      "note": "Workload share from the client list"
+    },
+    "book.fixedExpiry": {
+      "status": "estimated",
+      "note": "Expiry weeks of the fixed-term contracts in the client list"
+    },
+    "book.priors": {
+      "status": "default",
+      "note": "Fate probabilities by relationship health"
+    },
+    "book.exitNotice": {
+      "status": "default"
+    },
+    "book.replatformOffset": {
+      "status": "default"
+    },
+    "book.waveSlip": {
+      "status": "default",
+      "note": "The pack schedules waves at fixed offsets; slip is the modeler's lever"
+    },
+    "people.postMultTransfer": {
+      "range": [
+        1.0,
+        1.2,
+        2.0
+      ],
+      "status": "default",
+      "note": "Transfer group (values below 1 in the pack are floored at 1 here)"
+    },
+    "people.postMultRelease": {
+      "range": [
+        1.5,
+        3.0,
+        5.0
+      ],
+      "status": "default",
+      "note": "Release group"
+    },
+    "people.retentionEffect": {
+      "range": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "status": "default",
+      "note": "Lever, not a fact: the reduction a retention offer buys"
+    },
+    "channels.voice.volume": {
+      "range": [
+        0.92,
+        1.0,
+        1.08
+      ],
+      "status": "default",
+      "note": "Forecast error from the pack's volume_error (relative to the rebuilt volume)"
+    },
+    "channels.email.volume": {
+      "range": [
+        0.9200000000000002,
+        1.0,
+        1.08
+      ],
+      "status": "default",
+      "note": "Forecast error from the pack's volume_error (relative to the rebuilt volume)"
+    }
+  },
+  "questions": [],
+  "source": {
+    "tool": "CP-WFM-019 pack",
+    "version": "1.3",
+    "date": "2026-09-26"
+  }
+}

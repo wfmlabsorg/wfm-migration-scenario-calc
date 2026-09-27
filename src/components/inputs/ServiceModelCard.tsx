@@ -6,9 +6,10 @@ interface Props {
   onChange: (s: ServiceModel) => void
   showC: boolean
   onShowC: (v: boolean) => void
+  lastInPriority?: 'voice' | 'chat' | 'email' | null // under strict priority, the channel that absorbs the shortfall
 }
 
-export default function ServiceModelCard({ value, onChange, showC, onShowC }: Props) {
+export default function ServiceModelCard({ value, onChange, showC, onShowC, lastInPriority }: Props) {
   const isA = value.model === 'A'
   return (
     <div>
@@ -46,10 +47,18 @@ export default function ServiceModelCard({ value, onChange, showC, onShowC }: Pr
           </label>
         </>
       ) : (
-        <p className="text-[10px] text-gray-400">
-          Nobody hangs up: an overloaded queue shows service near zero where real customers would abandon. Use it to reproduce
-          classic Erlang C planning, or links made before abandonment was modelled.
-        </p>
+        <>
+          <p className="text-[10px] text-gray-400">
+            Nobody hangs up: an overloaded queue shows service near zero where real customers would abandon. Use it to reproduce
+            classic Erlang C planning, or links made before abandonment was modelled.
+          </p>
+          {lastInPriority && (
+            <p className="text-[10px] text-amber-300/90 mt-1">
+              Under Erlang C the whole shortfall lands on the last channel in the priority order ({lastInPriority} here): expect its
+              backlog or service to move sharply when you switch models.
+            </p>
+          )}
+        </>
       )}
     </div>
   )

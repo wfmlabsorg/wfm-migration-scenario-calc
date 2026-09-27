@@ -3,6 +3,7 @@
 // freeze with no backfill; about a quarter of the work leaving with clients who won't migrate
 // (step-downs) plus a tenth moving to another internal platform; then three migration waves.
 // Volumes were calibrated so week 0 has about 3% more available than required FTE.
+import { defaultRegister } from './register'
 import type { Inputs } from './types'
 
 export const DEFAULTS: Inputs = {
@@ -44,19 +45,35 @@ export const DEFAULTS: Inputs = {
     lookaheadWeeks: 4,
   },
   service: { model: 'A', patience: { voice: 120, chat: 300 }, redialRate: 0.4, abandonCap: 0.1 }, // patience and redial are estimates
+  people: { split: false, postMultTransfer: 1.2, postMultRelease: 3.0, retentionEffect: 0, retentionTarget: 'release' },
+  book: {
+    mode: 'manual',
+    contractMix: { fixed: 0.5, evergreen: 0.3, tfc: 0.2 },
+    fixedExpiry: [0, 52],
+    healthMix: { green: 0.6, amber: 0.3, red: 0.1 },
+    priors: {
+      green: { transfer: 0.85, exit: 0.1, replatform: 0.05 },
+      amber: { transfer: 0.65, exit: 0.25, replatform: 0.1 },
+      red: { transfer: 0.35, exit: 0.55, replatform: 0.1 },
+    },
+    exitNotice: { evergreen: [8, 13, 26], tfc: [4, 6, 13] },
+    replatformOffset: [4, 8, 16],
+    waves: [
+      { weeksAfterFreeze: 6, pct: 0.33 },
+      { weeksAfterFreeze: 12, pct: 0.33 },
+      { weeksAfterFreeze: 18, pct: 0.34 },
+    ],
+    waveSlip: [0, 0, 0],
+    granularity: 40,
+  },
   balance: { mode: 'priority', order: ['voice', 'chat', 'email'], emailFloor: 0.9 },
   borrowed: { fte: 0, startWeek: 8, endWeek: 38, ahtPenalty: 1.2, eligible: { voice: true, chat: true, email: true } },
-  uncertainty: {
-    enabled: false,
-    draws: 1000,
-    seed: 20260926,
-    freezeLength: [10, 14, 26],
-    tensionMult: [1.0, 1.5, 2.5],
-    postMult: [1.5, 2.5, 4.0],
-    surgePts: [0, 0.04, 0.1],
-    runoffPctWeek: [0, 0, 0.01],
-  },
+  uncertainty: { enabled: false, draws: 1000, seed: 20260926 },
+  assumptions: {}, // filled below: every generic question starts unanswered
+  projectQuestions: [],
 }
+
+DEFAULTS.assumptions = defaultRegister(DEFAULTS)
 
 export function cloneDefaults(): Inputs {
   return structuredClone(DEFAULTS)

@@ -13,6 +13,8 @@ const STARTERS = [
   'How many borrowed FTE would keep every week on target?',
   'What if the freeze runs 8 weeks longer?',
   'Explain the worst week step by step.',
+  'Describe our book: 40% fixed-term expiring weeks 10–40, 40% rolling, 20% rolling with termination for convenience; 50/35/15 green/amber/red. What are the implied fates and the worst week?',
+  'Split the team at the announcement; what does a 40% retention offer to the release group do to the worst week?',
 ]
 
 function ToolChip({ t }: { t: ToolEvent }) {

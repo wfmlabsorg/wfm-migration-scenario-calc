@@ -33,13 +33,64 @@ Each run has two passes.
    it, and the post-announcement effect after it. Expected values in the main line; binomial
    draws in the Monte Carlo.
 3. **Backfill.** Before the freeze only, back to the starting headcount.
-4. **Releases** (if on). After freeze end + notice, staff above the largest requirement in the
-   next few weeks (plus a buffer) are released.
+4. **Releases** (if on). After freeze end + notice, staff above the largest requirement over this
+   week and the next few (plus a buffer) are released. This week's requirement includes retries
+   and the email backlog carried in, and is converted to heads at this week's productive hours
+   per head (after the absence surge and pre-wave training), so a release never leaves the team
+   short in the week it happens.
 5. **Productive hours.** `heads × paid hours × (1 − shrinkage − surge) − training hours`.
    Training is spread over the weeks before each wave for the staff that wave will move.
 
 Headcount always balances exactly:
 `start + hired = attrition (pre + freeze + post) + moved + released + end`.
+
+### The team split at the announcement (optional)
+
+With **Split the team at announcement** on, the team divides at the freeze end into a
+**transfer group** T = H × τ and a **release group** R = H − T, where τ is the share of the
+current book that the remaining waves will move (in book mode, the book's own τ). The two groups
+then have their own post-announcement attrition multipliers (transferees keep a job and leave
+less; the release group has an end date and leaves more), and a **retention offer** can cut the
+leaving of one group by a share. Waves and training draw on T only; releases come from R only,
+and are measured against the week's productive hours as the engine computes them (the transfer
+group's training can eat into the release group's hours), so no release happens while the team is
+short. The transfer group's multiplier may be below 1 (transferees can be calmer than baseline).
+With equal multipliers, no offer and no releases the split reproduces the single stock exactly, in
+manual mode with waves summing to 100% and in book mode with any book; when manual waves sum to
+less, the release group carries the non-transferring work and its attrition. Attrition after the
+announcement is reported by group, and `explain_week` shows each group's rate.
+
+### The book of business (optional)
+
+**Book mode** replaces hand-typed runoff, step-downs and waves with a description of the book
+in shares, so client offboarding can be modelled *before* any exit is decided:
+
+| Input | Sets |
+|---|---|
+| Contract mix: fixed-term · rolling · rolling with a convenience clause | how and when a client can leave before its wave |
+| Fixed-term expiry window (weeks) | when un-renewed fixed-term work leaves, whatever the waves |
+| Health mix: green · amber · red | the odds of each fate |
+| Fate probabilities by health (transfer, exit, re-platform) | defaults from the desktop pack |
+| Exit notice after the announcement (rolling; with clause) | an exit that lands on or after the client's wave transfers instead (the late-exit rule) |
+| Re-platform timing | re-platformed work leaves without moving staff (capped at the wave) |
+| Waves as shares of the transferring work; wave slip | the transfer schedule and how much it may drift |
+
+The on-screen line is the **expected** departure curve, computed in closed form from the PERT and
+uniform week distributions (no random numbers), with staff moves derived from the transferring
+work only: the staff of clients that exit or re-platform stay behind (to be released, or idle),
+exactly as the split treats them, and the email backlog leaves with every departure. Intake, if
+on, replaces only exited and re-platformed work, never transferred work. Implied fates are the
+whole book's odds, counting departures that fall after the horizon (a warning says when
+transferring work leaves after the horizon). The Monte Carlo draws **real staircases**: each
+future samples K client-equivalents with their own cell, fate, wave and departure week, plus one
+wave slip, so the bands carry the book's uncertainty, not just the team's. K matters: band width
+from the book alone scales roughly with 1/√K, so set the granularity near the number of clients of
+comparable size (the analyst can set `book.granularity`). Each mix share is drawn from its own
+stream and the mix rescaled; the week ranges (exit notice, re-platform timing, wave slip) are
+drawn from the ranges in the Book card, and marking one **confirmed** in the register locks it to
+its likely value. The tool shows the **implied fate shares** and the transfer share at the
+announcement so two descriptions that collapse to the same curve are visibly the same. Book mode
+and manual mode are a switch, never a blend, so nothing is removed twice.
 
 ## Allocation within the blended team
 
@@ -49,8 +100,9 @@ Within each bucket:
    the team's own). If there aren't enough, it takes everything, and its service level is
    whatever those agents achieve.
 2. **Chat** does the same with what is left.
-3. **Email** is worked from the remaining hours across all buckets. Anything unworked carries
-   forward as backlog.
+3. **Email** is worked from the remaining hours across all buckets, borrowed time first (if
+   eligible) so the team's own hours stay available for Voice and Chat. Anything unworked
+   carries forward as backlog.
 4. **Spare hours** after email go back to Voice and Chat, in proportion to their need, so a
    team with headroom shows service above target rather than pinned to it.
 
@@ -100,8 +152,9 @@ The complete equations are in `src/lib/equations.ts`. They are included verbatim
 The grades use the same AAA–D- scale and colours as the Risk-Rated Capacity Planner.
 
 - **Week grade** (most-likely inputs).
-  - If every channel meets target: `0.70 + 0.30 × min(1, (cover − 1) ÷ 0.10)`, where
-    cover = available ÷ required FTE.
+  - If every channel meets target: `0.70 + 0.30 × clamp((cover − 1) ÷ 0.10, 0, 1)`, where
+    cover = available ÷ required FTE. Meeting every target is at least an A, even when cover
+    is below 1: required FTE is a conservative sizing (peak-bucket binding, Erlang C).
   - Otherwise: `0.70 × (worst attainment − 0.5) ÷ 0.5`, where attainment is service ÷ target
     (Email: its on-time index).
   - If a queue is unstable (agents ≤ load): D-.
@@ -111,15 +164,35 @@ The grades use the same AAA–D- scale and colours as the Risk-Rated Capacity Pl
 
 ## Uncertainty
 
-When uncertainty is on, each future draws these from PERT ranges:
-- freeze length
-- the tension effect
-- the post-announcement attrition effect
-- the absence surge
-- the runoff rate
+Uncertainty comes from the **assumption register**. The tool asks about 19 generic questions
+(timing, people, demand, service); each answer sets one or more inputs and carries a range
+(low, likely, high) and a status:
 
-Attrition is drawn binomially. The random numbers are seeded, so scenario A and scenario B see
-the same futures and differences between them come from the inputs. The chart's line always
+| Status | Range |
+|---|---|
+| Not asked | A deliberately wide generic range around the current value |
+| Estimated | The range someone gave ("about 4 months, could be 6" → 13 / 17 / 26 weeks) |
+| Confirmed | A point, or a narrow range if one was given |
+
+When uncertainty is on, each future draws **every** register entry that has a range from PERT
+(low, likely, high), and attrition binomially. Each input has its own seeded random stream, so
+answering one question does not reshuffle the others, and scenario A and B see the same futures.
+The chart header reports the **average band width** (mean 90th − 10th percentile over scored
+weeks and channels) and its previous value, so each answer shows how much it narrowed the
+forecast. Binomial attrition is real process noise, so the bands never reach zero. In the
+simulation only, offered loads are rounded to 3 significant figures so Erlang curves are reused.
+
+A project can add its own questions (for example, questions put to the owner of a planning
+workbook) that map to the same inputs.
+
+Inputs outside the scenario's mode are neither drawn nor counted: the transfer/release
+multipliers only when the split is on, the book's mixes only in book mode. In book mode the
+simulation also draws the departure staircase itself (see *The book of business*).
+
+**Shape cards** carry a scenario without its scale: timing, rates, ratios, handle times, the
+register and project questions, with week-0 cover and the workload mix instead of volumes and
+headcount. The Claude Desktop pack exports one; the tool rebuilds volumes for a chosen team size
+so that cover and mix match. Queue economics depend on size, so pick a size near the real one. The chart's line always
 shows the most-likely inputs; it is not the median of the futures.
 
 ## Limits

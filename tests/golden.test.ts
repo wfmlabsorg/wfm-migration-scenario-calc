@@ -1,5 +1,7 @@
 // The default balancing policy (strict priority voice → chat → email) must reproduce the engine
 // exactly as it was before balancing policies existed (fixture captured at commit f35c00e).
+// v1.3 (engine fixes): the `releases` variant was recaptured, because releases now respect this
+// week's backlog and retries, and email takes borrowed time first; the other three are untouched.
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { DEFAULTS } from '../src/lib/defaults'

@@ -44,13 +44,26 @@ export function pert(rng: Rng, [lo, mode, hi]: [number, number, number]): number
   return lo + ((hi - lo) * g1) / (g1 + g2)
 }
 
-/** Binomial draw; normal approximation for large n. */
+/**
+ * Binomial draw. Exact inversion of the pmf when the variance n·p·(1−p) is small (the tool's usual
+ * case: a fraction of a leaver per week), where a rounded, clipped normal is biased upwards;
+ * the normal approximation only when the variance is large enough for it to be unbiased.
+ */
 export function binomial(rng: Rng, n: number, p: number): number {
   if (n <= 0 || p <= 0) return 0
   if (p >= 1) return n
-  if (n < 60) {
+  if (p > 0.5) return n - binomial(rng, n, 1 - p) // keep (1−p)^n away from underflow
+  if (n * p * (1 - p) < 25) {
+    const q = p / (1 - p)
+    let pk = Math.pow(1 - p, n) // P(k = 0)
+    let cdf = pk
+    const u = rng()
     let k = 0
-    for (let i = 0; i < n; i++) if (rng() < p) k++
+    while (u > cdf && k < n) {
+      pk *= ((n - k) / (k + 1)) * q
+      k++
+      cdf += pk
+    }
     return k
   }
   const x = Math.round(n * p + Math.sqrt(n * p * (1 - p)) * normal(rng))

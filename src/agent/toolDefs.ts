@@ -1,5 +1,6 @@
 // Tool definitions for the analyst. The server relay pins these (the browser cannot change them);
 // the browser executes them against the engine. Ranges are enforced by schema.ts applyChanges.
+import { PATH_META } from '../lib/questions'
 import { PATHS } from './schema'
 
 const pathEnum = PATHS.map((p) => p.path)
@@ -49,6 +50,31 @@ const balanceSchema = {
     additionalProperties: false,
   },
 }
+const shares = (keys: string[], what: string) => ({
+  type: 'object',
+  description: `${what}; the shares must sum to 1.`,
+  properties: Object.fromEntries(keys.map((k) => [k, { type: 'number' }])),
+  required: keys,
+  additionalProperties: false,
+})
+const tripleSchema = (what: string) => ({ type: 'array', description: `${what}: [low, likely, high] in weeks.`, items: { type: 'number' } })
+const fateSchema = shares(['transfer', 'exit', 'replatform'], 'Fate probabilities')
+const bookProps = {
+  contractMix: shares(['fixed', 'evergreen', 'tfc'], 'Shares of workload by contract type (tfc = rolling with termination for convenience)'),
+  fixedExpiry: { type: 'array', description: 'Weeks [first, last] over which fixed-term work expires (absolute weeks from week 0).', items: { type: 'integer' } },
+  healthMix: shares(['green', 'amber', 'red'], 'Shares of workload by relationship health'),
+  priors: { type: 'object', description: 'Fate probabilities by health.', properties: { green: fateSchema, amber: fateSchema, red: fateSchema }, required: ['green', 'amber', 'red'], additionalProperties: false },
+  exitNotice: { type: 'object', description: 'Notice rolling clients give after the announcement.', properties: { evergreen: tripleSchema('Rolling'), tfc: tripleSchema('Rolling with convenience clause') }, required: ['evergreen', 'tfc'], additionalProperties: false },
+  replatformOffset: tripleSchema('Weeks after the announcement when re-platformed work leaves'),
+  waves: { type: 'array', description: 'Transfer waves (max 4): weeksAfterFreeze and pct = share of TRANSFERRING work (sum ≤ 1; remainder on the last wave).', items: { type: 'object', properties: { weeksAfterFreeze: { type: 'integer' }, pct: { type: 'number' } }, required: ['weeksAfterFreeze', 'pct'], additionalProperties: false } },
+  waveSlip: tripleSchema('Weeks every wave may slip (0,0,0 = none)'),
+  granularity: { type: 'integer', description: 'Client-equivalents sampled per simulated future (5–200; 40 is typical).' },
+}
+const bookSchema = {
+  type: 'array',
+  description: 'Replacement book of business (0 or 1 item); turns book mode on. Use this whenever the user describes clients by contract type, health or notice period; never hand-write step_downs for a described book. Empty = keep the current block.',
+  items: { type: 'object', properties: { mode: { type: 'string', enum: ['book', 'manual'] }, ...bookProps }, required: ['mode', ...Object.keys(bookProps)], additionalProperties: false },
+}
 const labelProp = { type: 'string', description: 'Scenario label. Empty string = the scenario currently on screen.' }
 
 export const TOOL_DEFS = [
@@ -61,11 +87,13 @@ export const TOOL_DEFS = [
   {
     name: 'run_scenario',
     description: 'Run the engine on the on-screen inputs with the given changes applied, WITHOUT changing the screen. Store the run under a short label for later explain_week, compare, sweep, run_monte_carlo or apply_to_calculator. Returns headline results and a compact weekly table.',
-    strict: true,
+    // Not strict: with every tool strict, the compiled grammar exceeds the API's size limit (this
+    // tool carries the path enum and four nested schemas). Its input is validated by applyChanges.
+    strict: false,
     input_schema: {
       type: 'object',
-      properties: { label: { type: 'string', description: 'Short unique label, e.g. "borrow15".' }, changes: changesSchema, waves: wavesSchema, step_downs: stepDownsSchema, balance: balanceSchema },
-      required: ['label', 'changes', 'waves', 'step_downs', 'balance'],
+      properties: { label: { type: 'string', description: 'Short unique label, e.g. "borrow15".' }, changes: changesSchema, waves: wavesSchema, step_downs: stepDownsSchema, balance: balanceSchema, book: bookSchema },
+      required: ['label', 'changes', 'waves', 'step_downs', 'balance', 'book'],
       additionalProperties: false,
     },
   },
@@ -97,7 +125,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'run_monte_carlo',
-    description: "Simulate many futures of a scenario, drawing the freeze length, attrition effects, absence surge and runoff from the ranges in its uncertainty settings. Returns the share of futures with no breach, freeze-end percentiles, and the 10th/50th/90th percentile service per channel at the scenario's worst weeks.",
+    description: "Simulate many futures of a scenario, drawing every assumption-register entry that has a range (PERT low/likely/high). Returns the share of futures with no breach, the average band width (how uncertain the forecast still is), the trough range, freeze-end percentiles, and the 10th/50th/90th percentile service per channel at the scenario's worst weeks.",
     strict: true,
     input_schema: {
       type: 'object',
@@ -116,6 +144,42 @@ export const TOOL_DEFS = [
       required: ['labels'],
       additionalProperties: false,
     },
+  },
+  {
+    name: 'record_assumption',
+    description: "Record the user's answer to an assumption question on the on-screen scenario: the likely value becomes the input, low/high its range, and status says how sure it is (estimated = someone's range; confirmed = signed off; default = back to the generic range). Only use values the user gave; never mark something confirmed unless they said it is. Fractions for rates and shares (0.14 = 14%); weeks, seconds, hours or multipliers otherwise. The user sees the change and can undo.",
+    strict: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', enum: Object.keys(PATH_META) },
+        low: { type: 'number' },
+        likely: { type: 'number' },
+        high: { type: 'number' },
+        status: { type: 'string', enum: ['estimated', 'confirmed', 'default'] },
+        owner: { type: 'string', description: 'Who gave or owns the answer (role, not a name); empty if unknown.' },
+        note: { type: 'string', description: 'Short note on the answer; empty if none.' },
+      },
+      required: ['path', 'low', 'likely', 'high', 'status', 'owner', 'note'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'set_book',
+    description: 'Describe the book of business by shares (contract mix, health mix, fate probabilities, notice ranges, waves as shares of transferring work, wave slip) and turn book mode on. With an empty label it goes on screen (the user can undo); with a label it is stored as a scenario like run_scenario. Returns the implied fate shares and the share of the book that will transfer at the announcement. Use it whenever the user describes clients by contract type, health or notice; never hand-write step_downs for a described book.',
+    strict: true,
+    input_schema: {
+      type: 'object',
+      properties: { label: labelProp, ...bookProps },
+      required: ['label', ...Object.keys(bookProps)],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'explain_book',
+    description: "The book's expected departure curve: implied fate shares after the late-exit rule, the share transferring at the announcement, what leaves within the horizon by cause, the wave weeks and a 12-point staircase of the book remaining. In manual mode it shows what book mode would give.",
+    strict: true,
+    input_schema: { type: 'object', properties: { label: labelProp }, required: ['label'], additionalProperties: false },
   },
   {
     name: 'apply_to_calculator',

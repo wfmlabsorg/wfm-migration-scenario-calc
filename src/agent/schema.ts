@@ -1,5 +1,7 @@
 // The only inputs the analyst may change, with ranges. Anything else is refused.
-import type { Balance, BalanceMode, Channel, Inputs, StepDown, Wave } from '../lib/types'
+import { normaliseMixes, validateBook } from '../lib/book'
+import { mixOf, setPath, syncRegister } from '../lib/register'
+import type { Balance, BalanceMode, Book, Channel, Inputs, StepDown, Wave } from '../lib/types'
 
 export interface PathSpec {
   path: string
@@ -51,6 +53,18 @@ export const PATHS: PathSpec[] = [
   { path: 'service.patience.chat', min: 5, max: 3600, describe: 'Erlang A: mean seconds a waiting chat customer stays before leaving' },
   { path: 'service.redialRate', min: 0, max: 1, describe: 'Erlang A: share of extra abandoners who try again next week (0–1)' },
   { path: 'service.abandonCap', min: 0.01, max: 0.5, describe: 'Erlang A: worst voice/chat abandonment above this caps the week at BBB, above twice it at CCC' },
+  { path: 'people.split', min: 0, max: 1, boolean: true, describe: 'Split the team at the announcement into a transfer group and a release group (1 yes, 0 no: one stock with attrition.postMult)' },
+  { path: 'people.postMultTransfer', min: 0.5, max: 8, describe: 'Split on: attrition multiplier after the announcement for staff transferring with the work' },
+  { path: 'people.postMultRelease', min: 1, max: 8, describe: 'Split on: attrition multiplier after the announcement for staff to be released' },
+  { path: 'people.retentionEffect', min: 0, max: 1, describe: 'Split on: retention offer cuts post-announcement leaving of the target group by this share (0–1); a lever' },
+  { path: 'book.useBook', min: 0, max: 1, boolean: true, describe: 'Describe departures by the book of business (1) instead of manual step-downs, runoff and waves (0). Use set_book to change the book itself' },
+  { path: 'book.contractMix.fixed', min: 0, max: 1, describe: 'Book mode: share of workload on fixed-term contracts (the other contract shares rescale)' },
+  { path: 'book.contractMix.evergreen', min: 0, max: 1, describe: 'Book mode: share on rolling contracts' },
+  { path: 'book.contractMix.tfc', min: 0, max: 1, describe: 'Book mode: share on rolling contracts with a termination-for-convenience clause' },
+  { path: 'book.healthMix.green', min: 0, max: 1, describe: 'Book mode: share of workload rated green (the other health shares rescale)' },
+  { path: 'book.healthMix.amber', min: 0, max: 1, describe: 'Book mode: share rated amber' },
+  { path: 'book.healthMix.red', min: 0, max: 1, describe: 'Book mode: share rated red' },
+  { path: 'book.granularity', min: 5, max: 200, integer: true, describe: 'Book mode: client-equivalents sampled per simulated future' },
   { path: 'balance.emailFloor', min: 0, max: 1, describe: 'Protect-email policy: share of email arrivals guaranteed first (0–1)' },
   { path: 'borrowed.fte', min: 0, max: 2000, describe: 'Borrowed FTE from another site' },
   { path: 'borrowed.startWeek', min: 0, max: 77, integer: true, describe: 'First week borrowed staff help' },
@@ -73,6 +87,7 @@ export interface Changes {
   waves?: Wave[] // replaces all waves when present
   stepDowns?: StepDown[] // replaces all step-downs when present
   balance?: { mode: string; order: string[]; emailFloor: number } // replaces the balancing policy when present
+  book?: unknown // replaces the whole book block when present (validated)
 }
 
 /** Validates and applies changes to a copy of the inputs. Throws with a readable message on anything invalid. */
@@ -87,6 +102,18 @@ export function applyChanges(base: Inputs, c: Changes): Inputs {
     if (spec.boolean && v !== 0 && v !== 1) throw new Error(`${ch.path} must be 0 or 1 (got ${ch.value})`)
     if (ch.path === 'service.useErlangA') {
       next.service.model = v === 1 ? 'A' : 'C'
+      continue
+    }
+    if (ch.path === 'people.split') {
+      next.people.split = v === 1
+      continue
+    }
+    if (ch.path === 'book.useBook') {
+      next.book.mode = v === 1 ? 'book' : 'manual'
+      continue
+    }
+    if (mixOf(ch.path)) {
+      setPath(next, ch.path, v) // rescales the other shares of the mix
       continue
     }
     const keys = ch.path.split('.')
@@ -110,6 +137,10 @@ export function applyChanges(base: Inputs, c: Changes): Inputs {
     }
     next.demand.stepDowns = c.stepDowns.map((s) => ({ week: s.week, pct: s.pct }))
   }
+  if (c.book !== undefined) {
+    next.book = validateBook(c.book) satisfies Book
+    normaliseMixes(next)
+  }
   if (c.balance) {
     const modes: BalanceMode[] = ['priority', 'floor', 'prorata', 'equal']
     const chans: Channel[] = ['voice', 'chat', 'email']
@@ -120,5 +151,6 @@ export function applyChanges(base: Inputs, c: Changes): Inputs {
     if (!(c.balance.emailFloor >= 0 && c.balance.emailFloor <= 1)) throw new Error('balance email_floor must be 0–1')
     next.balance = { mode: c.balance.mode as BalanceMode, order: o as Channel[], emailFloor: c.balance.emailFloor } satisfies Balance
   }
+  syncRegister(next) // the register's likely values must follow the inputs, or the Monte Carlo draws around stale centres
   return next
 }

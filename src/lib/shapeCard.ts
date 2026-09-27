@@ -238,3 +238,11 @@ export function fromShapeCard(raw: unknown, teamFte = 250): Inputs {
   syncRegister(inp)
   return inp
 }
+
+/** Reads a team size typed in the import prompt ("258", " 258 FTE", "1,200"); null if it isn't one. */
+export function parseTeamSize(text: string): number | null {
+  const m = text.replace(/[,\s]/g, '').match(/^(\d+(?:\.\d+)?)(?:fte)?$/i)
+  if (!m) return null
+  const n = Math.round(Number(m[1]))
+  return n >= 10 && n <= 5000 ? n : null
+}

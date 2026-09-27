@@ -144,3 +144,14 @@ describe('shape cards', () => {
     expect(checkCard(badP)).toMatch(/people\.headcount/)
   })
 })
+
+describe('team size typed at import', () => {
+  test('accepts plain and decorated numbers, refuses anything else instead of silently using a default', async () => {
+    const { parseTeamSize } = await import('../src/lib/shapeCard')
+    expect(parseTeamSize('258')).toBe(258)
+    expect(parseTeamSize(' 258 FTE ')).toBe(258)
+    expect(parseTeamSize('1,200')).toBe(1200)
+    expect(parseTeamSize('257.6')).toBe(258)
+    for (const bad of ['', 'abc', '5', '258 heads', '99999']) expect(parseTeamSize(bad)).toBeNull()
+  })
+})

@@ -19,7 +19,7 @@ function inline(text: string, key: string): ReactNode[] {
 }
 
 export default function Markdown({ text }: { text: string }) {
-  const lines = text.split('\n')
+  const lines = String(text ?? '').split('\n')
   const blocks: ReactNode[] = []
   let i = 0
   while (i < lines.length) {

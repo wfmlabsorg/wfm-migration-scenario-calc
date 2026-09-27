@@ -504,7 +504,7 @@ export default function App() {
                   e.target.value = ''
                   if (!f) return
                   try {
-                    const answer = window.prompt('Model a team of about how many FTE (frontline heads)? Bigger pools serve better at the same occupancy, so pick a size near the real one.', String(inputs.pool.fte))
+                    const answer = window.prompt('Team size for this card: how many frontline FTE (e.g. 258)? The card carries no headcount, so type the real one. Bigger pools serve better at the same occupancy.', '')
                     if (answer === null) return // cancelled: nothing imported
                     const size = parseTeamSize(answer)
                     if (size === null) {
@@ -572,7 +572,7 @@ export default function App() {
         </div>
       </main>
 
-      <ErrorBoundary label="The analyst" compact onReset={() => setShowAgent(false)}>
+      <ErrorBoundary label="The analyst" compact panel onReset={() => setShowAgent(false)}>
         <AgentPanel open={showAgent} onClose={() => setShowAgent(false)} inputs={inputs} result={result} onApply={onAgentApply} />
       </ErrorBoundary>
 

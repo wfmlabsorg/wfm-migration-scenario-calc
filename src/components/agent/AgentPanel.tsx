@@ -19,7 +19,7 @@ const STARTERS = [
 
 function ToolChip({ t }: { t: ToolEvent }) {
   const [open, setOpen] = useState(false)
-  let pretty = t.output
+  let pretty = String(t.output ?? '')
   try {
     pretty = JSON.stringify(JSON.parse(t.output), null, 1)
   } catch {
@@ -30,7 +30,7 @@ function ToolChip({ t }: { t: ToolEvent }) {
       <button onClick={() => setOpen(!open)} className="w-full text-left px-2 py-1 flex items-center gap-2 text-gray-300">
         <span className="text-brand-400">{open ? '▾' : '▸'}</span>
         <span className="font-mono">{t.name}</span>
-        <span className="text-gray-500 truncate">{JSON.stringify(t.input)}</span>
+        <span className="text-gray-500 truncate">{(() => { try { return JSON.stringify(t.input) } catch { return '' } })()}</span>
       </button>
       {open && <pre className="px-2 pb-2 max-h-64 overflow-auto text-[10px] text-gray-400 whitespace-pre-wrap">{pretty}</pre>}
     </div>
@@ -93,7 +93,18 @@ export default function AgentPanel({ open, onClose, inputs, result, onApply }: P
     abortRef.current = ac
     // one user entry, then one assistant entry that accumulates text and tool calls across rounds
     setChat((c) => [...c, { role: 'user', text: q, tools: [] }, { role: 'assistant', text: '', tools: [], parts: [] }])
-    const patch = (f: (e: ChatEntry) => ChatEntry) => setChat((c) => [...c.slice(0, -1), f(c[c.length - 1])])
+    // patch the answer being written; never throw inside a state update (that would take the panel down)
+    const patch = (f: (e: ChatEntry) => ChatEntry) =>
+      setChat((c) => {
+        const last = c[c.length - 1]
+        if (!last || last.role !== 'assistant') return c
+        try {
+          return [...c.slice(0, -1), f(last)]
+        } catch (err) {
+          console.error('analyst: could not update the answer', err)
+          return c
+        }
+      })
     let turnStart: ChatEntry | null = null // snapshot of the answer before the current model turn
     try {
       await ask(history.current, q, tools, {
@@ -163,7 +174,7 @@ export default function AgentPanel({ open, onClose, inputs, result, onApply }: P
             <div key={k} className="ml-8 rounded-lg bg-brand-500/15 border border-brand-500/30 px-3 py-2 text-[13px] text-gray-100">{e.text}</div>
           ) : (
             <div key={k}>
-              {(e.parts ?? []).map((p, i) => (p.kind === 'tool' ? <ToolChip key={p.tool.id} t={p.tool} /> : <Markdown key={i} text={p.text} />))}
+              {(e.parts ?? []).map((p, i) => (p?.kind === 'tool' && p.tool ? <ToolChip key={`${p.tool.id}-${i}`} t={p.tool} /> : <Markdown key={i} text={p?.kind === 'text' ? p.text : ''} />))}
               {busy && k === chat.length - 1 && <p className="text-[12px] text-gray-500 animate-pulse">Working…</p>}
             </div>
           ),

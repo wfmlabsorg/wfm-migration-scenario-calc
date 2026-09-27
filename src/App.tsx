@@ -8,7 +8,7 @@ import ServiceModelCard from './components/inputs/ServiceModelCard'
 import AssumptionsCard from './components/inputs/AssumptionsCard'
 import BookCard from './components/inputs/BookCard'
 import { syncRegister } from './lib/register'
-import { cardWarnings, fromShapeCard, toShapeCard } from './lib/shapeCard'
+import { cardWarnings, fromShapeCard, parseTeamSize, toShapeCard } from './lib/shapeCard'
 import ResultCard from './components/results/ResultCard'
 import { download, toCsv } from './lib/csv'
 import { dossier } from './lib/dossier'
@@ -503,8 +503,14 @@ export default function App() {
                   e.target.value = ''
                   if (!f) return
                   try {
-                    const size = Number(window.prompt('Model a team of about how many FTE? Bigger pools serve better at the same occupancy, so pick a size near the real one.', '250'))
-                    const team = Number.isFinite(size) && size >= 10 ? Math.round(size) : 250
+                    const answer = window.prompt('Model a team of about how many FTE (frontline heads)? Bigger pools serve better at the same occupancy, so pick a size near the real one.', String(inputs.pool.fte))
+                    if (answer === null) return // cancelled: nothing imported
+                    const size = parseTeamSize(answer)
+                    if (size === null) {
+                      window.alert(`"${answer}" isn't a team size. Enter a whole number of FTE between 10 and 5,000, e.g. 258.`)
+                      return
+                    }
+                    const team = size
                     const raw = JSON.parse(await f.text())
                     const next = fromShapeCard(raw, team)
                     const warn = cardWarnings(raw)

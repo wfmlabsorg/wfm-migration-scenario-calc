@@ -59,7 +59,7 @@ function summarise(r: RunResult & { inputs: Inputs; targets: { voice: number; ch
   const emailLate = r.weeks.filter((w) => w.email.scored && w.email.timeliness < 1 - 1e-6).length
   const util = Math.max(0, ...r.weeks.map((w) => (Number.isFinite(w.utilisation) ? w.utilisation : 0)))
   const gapWeek = r.weeks.reduce((a, w) => (w.fteReq - w.fteAvail > a.fteReq - a.fteAvail ? w : a), r.weeks[0])
-  const backlog = Math.max(0, ...r.weeks.map((w) => w.email.backlogDays))
+  const backlog = Math.max(0, ...r.weeks.filter((w) => w.email.scored).map((w) => w.email.backlogDays)) // scored weeks only
   const idle = r.weeks.reduce((s, w) => s + w.borrowedIdleHours, 0)
   const peakAb = (k: 'voice' | 'chat') => Math.max(0, ...r.weeks.map((w) => (w[k].scored && Number.isFinite(w[k].abandonRate) ? w[k].abandonRate : 0)))
   const worstChannel = !worst

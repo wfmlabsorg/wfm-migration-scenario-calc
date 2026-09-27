@@ -112,7 +112,7 @@ Everything runs in the browser; no data leaves the page. Deploys to Netlify from
 
 ## Customise
 
-- **Demo scenario:** `src/lib/defaults.ts` (a synthetic 260-FTE team shaped like a typical country-exit migration)
+- **Demo scenario:** `src/lib/defaults.ts` (a synthetic 100-FTE travel-counsellor team: phone and email, 10-minute handle times, starting about 6% short, in a country-exit migration). The pre-v1.4.1 demo is kept in `tests/fixtures/legacy-demo-inputs.json` for the regression tests.
 - **Analyst:** tools in `src/agent/toolDefs.ts` + `src/agent/tools.ts`; instructions in `src/agent/systemPrompt.ts`; limits and pricing in `src/agent/relay.ts`
 - **Grading:** `src/lib/grade.ts`
 - **Channel priority or allocation rules:** `src/lib/engine.ts` (the allocation block is commented)

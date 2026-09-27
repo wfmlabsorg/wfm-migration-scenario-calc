@@ -91,20 +91,21 @@ export function ServiceChart({ result, compare, erlangC, bands, targets }: Props
   })
   const abandons = result.weeks.some((w) => w.voice.abandoned > 0 || w.chat.abandoned > 0)
   ds.push(line('Voice SL', result.weeks.map((w) => pctOrNull(w.voice.sl)), COLORS.voice))
-  ds.push(line('Chat SL', result.weeks.map((w) => pctOrNull(w.chat.sl)), COLORS.chat))
+  const hasChat = result.weeks.some((w) => w.chat.scored)
+  if (hasChat) ds.push(line('Chat SL', result.weeks.map((w) => pctOrNull(w.chat.sl)), COLORS.chat))
   ds.push(line('Email on-time', result.weeks.map((w) => pctOrNull(w.email.timeliness)), COLORS.email))
   if (abandons) {
     ds.push(line('Voice abandon', result.weeks.map((w) => pctOrNull(w.voice.abandonRate)), COLORS.voice, false, [1, 3], 1.5))
-    ds.push(line('Chat abandon', result.weeks.map((w) => pctOrNull(w.chat.abandonRate)), COLORS.chat, false, [1, 3], 1.5))
+    if (hasChat) ds.push(line('Chat abandon', result.weeks.map((w) => pctOrNull(w.chat.abandonRate)), COLORS.chat, false, [1, 3], 1.5))
   }
   if (erlangC) {
     ds.push(line('Voice (Erlang C)', erlangC.weeks.map((w) => pctOrNull(w.voice.sl)), `${COLORS.voice}99`, false, [2, 2], 1))
-    ds.push(line('Chat (Erlang C)', erlangC.weeks.map((w) => pctOrNull(w.chat.sl)), `${COLORS.chat}99`, false, [2, 2], 1))
+    if (hasChat) ds.push(line('Chat (Erlang C)', erlangC.weeks.map((w) => pctOrNull(w.chat.sl)), `${COLORS.chat}99`, false, [2, 2], 1))
     ds.push(line('Email (Erlang C)', erlangC.weeks.map((w) => pctOrNull(w.email.timeliness)), `${COLORS.email}99`, false, [2, 2], 1))
   }
   if (compare) {
     ds.push(line('Voice (scenario A)', compare.weeks.map((w) => pctOrNull(w.voice.sl)), COLORS.voice, true))
-    ds.push(line('Chat (scenario A)', compare.weeks.map((w) => pctOrNull(w.chat.sl)), COLORS.chat, true))
+    if (hasChat) ds.push(line('Chat (scenario A)', compare.weeks.map((w) => pctOrNull(w.chat.sl)), COLORS.chat, true))
     ds.push(line('Email (scenario A)', compare.weeks.map((w) => pctOrNull(w.email.timeliness)), COLORS.email, true))
   }
   const tg = targets.voice === targets.chat

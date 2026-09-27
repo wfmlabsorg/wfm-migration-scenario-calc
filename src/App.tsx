@@ -243,7 +243,7 @@ export default function App() {
                 <NumberInput label="AHT (s)" value={ch.email.aht} step={10} min={1} onChange={(v) => set((i) => { i.channels.email.aht = Math.max(1, v) })} />
                 <NumberInput label="Target (days)" value={ch.email.targetDays} step={0.5} min={0.25} onChange={(v) => set((i) => { i.channels.email.targetDays = Math.max(0.25, v) })} />
               </div>
-              <p className="text-[10px] text-gray-500">One blended team serves Voice first, then Chat; Email takes what is left.</p>
+              <p className="text-[10px] text-gray-500">One blended team serves every channel; how it shares a shortfall is set under Channel balancing. Email carries all deferrable work as a backlog. Set a channel's volume to 0 if the team doesn't handle it.</p>
             </Card>
 
             <Card title="Team">
@@ -433,7 +433,7 @@ export default function App() {
               )}
               <ResultCard label="Weeks below target" sublabel="Voice · Chat · Email" value={`${s.below('voice', ch.voice.slTarget)} · ${s.below('chat', ch.chat.slTarget)} · ${s.emailLate}`} />
               {inputs.service.model === 'A' && (
-                <ResultCard label="Peak abandonment" sublabel="Voice · Chat, share who gave up" value={`${pct(s.abVoice, 1)} · ${pct(s.abChat, 1)}`} accent={Math.max(s.abVoice, s.abChat) > inputs.service.abandonCap}
+                <ResultCard label="Peak abandonment" sublabel={inputs.channels.chat.volume > 0 ? 'Voice · Chat, share who gave up' : 'Voice, share who gave up'} value={inputs.channels.chat.volume > 0 ? `${pct(s.abVoice, 1)} · ${pct(s.abChat, 1)}` : pct(s.abVoice, 1)} accent={Math.max(s.abVoice, s.abChat) > inputs.service.abandonCap}
                   note={Math.max(s.abVoice, s.abChat) > inputs.service.abandonCap ? `Above the ${pct(inputs.service.abandonCap)} cap: grade capped` : `Cap ${pct(inputs.service.abandonCap)}`} />
               )}
               <ResultCard label="Peak utilisation" sublabel="Work offered ÷ capacity" value={pct(s.util)} accent={s.util > 1} note={s.util > 1 ? 'Above 100%: more work than hours' : undefined} />

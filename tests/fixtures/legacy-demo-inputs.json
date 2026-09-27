@@ -1,0 +1,498 @@
+{
+  "horizonWeeks": 39,
+  "channels": {
+    "voice": {
+      "volume": 30820,
+      "aht": 360,
+      "slTarget": 0.8,
+      "slSeconds": 20
+    },
+    "chat": {
+      "volume": 11140,
+      "aht": 600,
+      "slTarget": 0.8,
+      "slSeconds": 60,
+      "concurrency": 2
+    },
+    "email": {
+      "volume": 13980,
+      "aht": 480,
+      "targetDays": 1
+    }
+  },
+  "pool": {
+    "fte": 260,
+    "shrinkage": 0.32,
+    "paidHours": 37.5,
+    "openHours": 60
+  },
+  "profile": {
+    "volumeShare": [
+      0.45,
+      0.4,
+      0.15
+    ],
+    "hourShare": [
+      0.3,
+      0.45,
+      0.25
+    ],
+    "scheduleFit": 0.85
+  },
+  "attrition": {
+    "annual": 0.14,
+    "tensionMult": 1.5,
+    "postMult": 2.5
+  },
+  "freeze": {
+    "startWeek": 2,
+    "endWeek": 16,
+    "backfillBefore": true
+  },
+  "demand": {
+    "runoffPctWeek": 0,
+    "runoffStartWeek": null,
+    "stepDowns": [
+      {
+        "week": 20,
+        "pct": 0.08
+      },
+      {
+        "week": 22,
+        "pct": 0.1
+      },
+      {
+        "week": 24,
+        "pct": 0.08
+      },
+      {
+        "week": 29,
+        "pct": 0.09
+      }
+    ],
+    "intakeOn": false,
+    "intakePct": 1
+  },
+  "after": {
+    "waves": [
+      {
+        "weeksAfterFreeze": 6,
+        "pct": 0.33
+      },
+      {
+        "weeksAfterFreeze": 12,
+        "pct": 0.33
+      },
+      {
+        "weeksAfterFreeze": 18,
+        "pct": 0.34
+      }
+    ],
+    "trainingHours": 24,
+    "trainingWeeks": 4,
+    "surgePts": 0.04,
+    "surgeWeeks": 12,
+    "releasesOn": false,
+    "noticeWeeks": 6,
+    "releaseBuffer": 0.05,
+    "lookaheadWeeks": 4
+  },
+  "service": {
+    "model": "A",
+    "patience": {
+      "voice": 120,
+      "chat": 300
+    },
+    "redialRate": 0.4,
+    "abandonCap": 0.1
+  },
+  "people": {
+    "split": false,
+    "postMultTransfer": 1.2,
+    "postMultRelease": 3,
+    "retentionEffect": 0,
+    "retentionTarget": "release"
+  },
+  "book": {
+    "mode": "manual",
+    "contractMix": {
+      "fixed": 0.5,
+      "evergreen": 0.3,
+      "tfc": 0.2
+    },
+    "fixedExpiry": [
+      0,
+      52
+    ],
+    "healthMix": {
+      "green": 0.6,
+      "amber": 0.3,
+      "red": 0.1
+    },
+    "priors": {
+      "green": {
+        "transfer": 0.85,
+        "exit": 0.1,
+        "replatform": 0.05
+      },
+      "amber": {
+        "transfer": 0.65,
+        "exit": 0.25,
+        "replatform": 0.1
+      },
+      "red": {
+        "transfer": 0.35,
+        "exit": 0.55,
+        "replatform": 0.1
+      }
+    },
+    "exitNotice": {
+      "evergreen": [
+        8,
+        13,
+        26
+      ],
+      "tfc": [
+        4,
+        6,
+        13
+      ]
+    },
+    "replatformOffset": [
+      4,
+      8,
+      16
+    ],
+    "waves": [
+      {
+        "weeksAfterFreeze": 6,
+        "pct": 0.33
+      },
+      {
+        "weeksAfterFreeze": 12,
+        "pct": 0.33
+      },
+      {
+        "weeksAfterFreeze": 18,
+        "pct": 0.34
+      }
+    ],
+    "waveSlip": [
+      0,
+      0,
+      0
+    ],
+    "granularity": 40
+  },
+  "balance": {
+    "mode": "priority",
+    "order": [
+      "voice",
+      "chat",
+      "email"
+    ],
+    "emailFloor": 0.9
+  },
+  "borrowed": {
+    "fte": 0,
+    "startWeek": 8,
+    "endWeek": 38,
+    "ahtPenalty": 1.2,
+    "eligible": {
+      "voice": true,
+      "chat": true,
+      "email": true
+    }
+  },
+  "uncertainty": {
+    "enabled": false,
+    "draws": 1000,
+    "seed": 20260926
+  },
+  "assumptions": {
+    "freeze.startWeek": {
+      "range": [
+        0,
+        2,
+        6
+      ],
+      "status": "default"
+    },
+    "freeze.length": {
+      "range": [
+        10,
+        14,
+        25
+      ],
+      "status": "default"
+    },
+    "after.waves": {
+      "status": "default"
+    },
+    "after.noticeWeeks": {
+      "range": [
+        4,
+        6,
+        12
+      ],
+      "status": "default"
+    },
+    "attrition.annual": {
+      "range": [
+        0.10500000000000001,
+        0.14,
+        0.196
+      ],
+      "status": "default"
+    },
+    "attrition.tensionMult": {
+      "range": [
+        1,
+        1.5,
+        2.0999999999999996
+      ],
+      "status": "default"
+    },
+    "attrition.postMult": {
+      "range": [
+        1.5,
+        2.5,
+        3.5
+      ],
+      "status": "default"
+    },
+    "people.postMultTransfer": {
+      "range": [
+        0.72,
+        1.2,
+        1.68
+      ],
+      "status": "default"
+    },
+    "people.postMultRelease": {
+      "range": [
+        1.7999999999999998,
+        3,
+        4.199999999999999
+      ],
+      "status": "default"
+    },
+    "people.retentionEffect": {
+      "range": [
+        0,
+        0,
+        0
+      ],
+      "status": "default"
+    },
+    "after.surgePts": {
+      "range": [
+        0,
+        0.04,
+        0.1
+      ],
+      "status": "default"
+    },
+    "after.surgeWeeks": {
+      "range": [
+        6,
+        12,
+        24
+      ],
+      "status": "default"
+    },
+    "after.trainingHours": {
+      "range": [
+        12,
+        24,
+        48
+      ],
+      "status": "default"
+    },
+    "pool.shrinkage": {
+      "range": [
+        0.28,
+        0.32,
+        0.38
+      ],
+      "status": "default"
+    },
+    "freeze.backfillBefore": {
+      "status": "default"
+    },
+    "demand.runoffPctWeek": {
+      "range": [
+        0,
+        0,
+        0.005
+      ],
+      "status": "default"
+    },
+    "demand.stepDowns": {
+      "status": "default"
+    },
+    "demand.intakePct": {
+      "range": [
+        0.5,
+        1,
+        1.2
+      ],
+      "status": "default"
+    },
+    "channels.voice.volume": {
+      "range": [
+        28354.4,
+        30820,
+        33285.600000000006
+      ],
+      "status": "default"
+    },
+    "channels.chat.volume": {
+      "range": [
+        10248.800000000001,
+        11140,
+        12031.2
+      ],
+      "status": "default"
+    },
+    "channels.email.volume": {
+      "range": [
+        12861.6,
+        13980,
+        15098.400000000001
+      ],
+      "status": "default"
+    },
+    "channels.voice.aht": {
+      "range": [
+        316.8,
+        360,
+        403.20000000000005
+      ],
+      "status": "default"
+    },
+    "channels.chat.aht": {
+      "range": [
+        528,
+        600,
+        672.0000000000001
+      ],
+      "status": "default"
+    },
+    "channels.email.aht": {
+      "range": [
+        422.4,
+        480,
+        537.6
+      ],
+      "status": "default"
+    },
+    "channels.targets": {
+      "status": "default"
+    },
+    "service.patience.voice": {
+      "range": [
+        60,
+        120,
+        240
+      ],
+      "status": "default"
+    },
+    "service.patience.chat": {
+      "range": [
+        150,
+        300,
+        600
+      ],
+      "status": "default"
+    },
+    "service.redialRate": {
+      "range": [
+        0.2,
+        0.4,
+        0.7
+      ],
+      "status": "default"
+    },
+    "borrowed.fte": {
+      "range": [
+        0,
+        0,
+        0
+      ],
+      "status": "default"
+    },
+    "borrowed.ahtPenalty": {
+      "range": [
+        1,
+        1.2,
+        1.4
+      ],
+      "status": "default"
+    },
+    "book.contractMix.fixed": {
+      "range": [
+        0.35,
+        0.5,
+        0.65
+      ],
+      "status": "default"
+    },
+    "book.contractMix.evergreen": {
+      "range": [
+        0.15,
+        0.3,
+        0.44999999999999996
+      ],
+      "status": "default"
+    },
+    "book.contractMix.tfc": {
+      "range": [
+        0.05000000000000002,
+        0.2,
+        0.35
+      ],
+      "status": "default"
+    },
+    "book.fixedExpiry": {
+      "status": "default"
+    },
+    "book.healthMix.green": {
+      "range": [
+        0.44999999999999996,
+        0.6,
+        0.75
+      ],
+      "status": "default"
+    },
+    "book.healthMix.amber": {
+      "range": [
+        0.15,
+        0.3,
+        0.44999999999999996
+      ],
+      "status": "default"
+    },
+    "book.healthMix.red": {
+      "range": [
+        0,
+        0.1,
+        0.25
+      ],
+      "status": "default"
+    },
+    "book.priors": {
+      "status": "default"
+    },
+    "book.exitNotice": {
+      "status": "default"
+    },
+    "book.replatformOffset": {
+      "status": "default"
+    },
+    "book.waveSlip": {
+      "status": "default"
+    }
+  },
+  "projectQuestions": []
+}

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULTS } from '../src/lib/defaults'
+import { DEFAULTS } from './legacyDemo'
 import { run } from '../src/lib/engine'
 import { worstWeek } from '../src/lib/kpis'
 import { dossier } from '../src/lib/dossier'

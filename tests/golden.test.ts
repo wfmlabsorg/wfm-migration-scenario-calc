@@ -4,7 +4,7 @@
 // week's backlog and retries, and email takes borrowed time first; the other three are untouched.
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { DEFAULTS } from '../src/lib/defaults'
+import { DEFAULTS } from './legacyDemo'
 import { run } from '../src/lib/engine'
 import type { Inputs } from '../src/lib/types'
 

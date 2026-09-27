@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import type Anthropic from '@anthropic-ai/sdk'
 import { AgentError, ask } from '../src/agent/loop'
 import { AgentTools } from '../src/agent/tools'
-import { DEFAULTS } from '../src/lib/defaults'
+import { DEFAULTS } from './legacyDemo'
 import { simulate } from '../src/lib/montecarlo'
 
 // The relay streams the SDK's newline-delimited event format (MessageStream.toReadableStream).

@@ -1,19 +1,22 @@
 // Synthetic demonstration scenario, no real organisation's data. Its shape follows a typical
-// country-exit migration: a 260-FTE blended team with about 3% headroom; a 14-week consultation
-// freeze with no backfill; about a quarter of the work leaving with clients who won't migrate
-// (step-downs) plus a tenth moving to another internal platform; then three migration waves.
-// Volumes were calibrated so week 0 has about 3% more available than required FTE.
+// travel-counsellor team in a country exit: a 100-FTE blended team handling phone and email
+// (email standing in for all deferrable work, including offline transactions), no chat,
+// 10-minute handle times, and a team that starts about 6% short, with both channels sharing
+// the shortfall. Then a 14-week consultation freeze with no backfill; about a quarter of the
+// work leaving with clients who won't migrate (step-downs) plus a tenth moving to another
+// internal platform; then three migration waves. Volumes were calibrated so week 0 has about
+// 6% less available than required FTE. (The pre-v1.4.1 demo is kept in tests/fixtures.)
 import { defaultRegister } from './register'
 import type { Inputs } from './types'
 
 export const DEFAULTS: Inputs = {
   horizonWeeks: 39,
   channels: {
-    voice: { volume: 30820, aht: 360, slTarget: 0.8, slSeconds: 20 },
-    chat: { volume: 11140, aht: 600, slTarget: 0.8, slSeconds: 60, concurrency: 2 },
-    email: { volume: 13980, aht: 480, targetDays: 1 },
+    voice: { volume: 4200, aht: 600, slTarget: 0.8, slSeconds: 60 },
+    chat: { volume: 0, aht: 600, slTarget: 0.8, slSeconds: 60, concurrency: 2 }, // no chat channel in this team
+    email: { volume: 12600, aht: 600, targetDays: 1 }, // email and other deferrable work
   },
-  pool: { fte: 260, shrinkage: 0.32, paidHours: 37.5, openHours: 60 },
+  pool: { fte: 100, shrinkage: 0.25, paidHours: 37.5, openHours: 55 },
   profile: { volumeShare: [0.45, 0.4, 0.15], hourShare: [0.3, 0.45, 0.25], scheduleFit: 0.85 },
   attrition: { annual: 0.14, tensionMult: 1.5, postMult: 2.5 },
   freeze: { startWeek: 2, endWeek: 16, backfillBefore: true },
@@ -44,7 +47,7 @@ export const DEFAULTS: Inputs = {
     releaseBuffer: 0.05,
     lookaheadWeeks: 4,
   },
-  service: { model: 'A', patience: { voice: 120, chat: 300 }, redialRate: 0.4, abandonCap: 0.1 }, // patience and redial are estimates
+  service: { model: 'A', patience: { voice: 180, chat: 300 }, redialRate: 0.4, abandonCap: 0.1 }, // patience and redial are estimates
   people: { split: false, postMultTransfer: 1.2, postMultRelease: 3.0, retentionEffect: 0, retentionTarget: 'release' },
   book: {
     mode: 'manual',
@@ -66,7 +69,7 @@ export const DEFAULTS: Inputs = {
     waveSlip: [0, 0, 0],
     granularity: 40,
   },
-  balance: { mode: 'priority', order: ['voice', 'chat', 'email'], emailFloor: 0.9 },
+  balance: { mode: 'equal', order: ['voice', 'chat', 'email'], emailFloor: 0.9 },
   borrowed: { fte: 0, startWeek: 8, endWeek: 38, ahtPenalty: 1.2, eligible: { voice: true, chat: true, email: true } },
   uncertainty: { enabled: false, draws: 1000, seed: 20260926 },
   assumptions: {}, // filled below: every generic question starts unanswered

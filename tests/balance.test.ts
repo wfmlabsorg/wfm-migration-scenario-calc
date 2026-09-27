@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { DEFAULTS } from '../src/lib/defaults'
+import { DEFAULTS } from './legacyDemo'
 import { run } from '../src/lib/engine'
 import { curve } from '../src/lib/erlang'
 import { curveA } from '../src/lib/erlangA'

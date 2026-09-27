@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { DEFAULTS } from '../src/lib/defaults'
+import { DEFAULTS } from './legacyDemo'
 import { run } from '../src/lib/engine'
 import { simulate } from '../src/lib/montecarlo'
 import { mulberry32, pert } from '../src/lib/random'

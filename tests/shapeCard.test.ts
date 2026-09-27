@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { DEFAULTS } from '../src/lib/defaults'
+import { DEFAULTS } from './legacyDemo'
 import { run } from '../src/lib/engine'
 import { recordAnswer } from '../src/lib/register'
 import { expectedBook } from '../src/lib/book'

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { AgentTools } from '../src/agent/tools'
-import { DEFAULTS } from '../src/lib/defaults'
+import { DEFAULTS } from './legacyDemo'
 import { run } from '../src/lib/engine'
 import { hash32, simulate } from '../src/lib/montecarlo'
 import { PATH_META, QUESTIONS } from '../src/lib/questions'

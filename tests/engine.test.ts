@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { DEFAULTS } from '../src/lib/defaults'
+import { DEFAULTS } from './legacyDemo'
 import { run, scheduledWaves } from '../src/lib/engine'
 import { mulberry32 } from '../src/lib/random'
 import type { Inputs, RunResult } from '../src/lib/types'

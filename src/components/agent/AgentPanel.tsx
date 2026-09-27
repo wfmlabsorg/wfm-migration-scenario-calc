@@ -81,7 +81,11 @@ export default function AgentPanel({ open, onClose, inputs, result, onApply }: P
     [onApply],
   )
 
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), [chat, busy])
+  // braces matter: newer browsers make scrollIntoView return a value, and React would call a returned
+  // value as the effect's clean-up ("c is not a function" when the panel re-renders or closes)
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chat, busy])
 
   const send = async (text: string) => {
     const q = text.trim()

@@ -70,6 +70,14 @@ export interface StepDown {
   pct: number // 0–1 share of the existing book removed that week
 }
 
+/** A period of extra shrinkage, e.g. summer holidays: +pts on top of base shrinkage for `weeks` weeks from `startWeek`. */
+export interface ShrinkSpike {
+  startWeek: number
+  weeks: number
+  pts: number // 0–0.5 added to base shrinkage
+  label?: string
+}
+
 export interface Inputs {
   horizonWeeks: number
   channels: {
@@ -78,6 +86,7 @@ export interface Inputs {
     email: { volume: number; aht: number; targetDays: number }
   }
   pool: { fte: number; shrinkage: number; paidHours: number; openHours: number }
+  seasonality: { spikes: ShrinkSpike[] } // known periods of extra shrinkage (holidays); reduce available hours only
   profile: { volumeShare: Triple; hourShare: Triple; scheduleFit: number }
   attrition: { annual: number; tensionMult: number; postMult: number }
   freeze: { startWeek: number; endWeek: number; backfillBefore: boolean }
@@ -153,6 +162,7 @@ export interface WeekResult {
   released: number
   trainingHours: number
   surgePts: number
+  seasonalPts: number // extra shrinkage from seasonality this week
   prodHours: number // in-house productive hours after shrink, surge and training
   borrowedUsedHours: number
   borrowedIdleHours: number
@@ -193,7 +203,7 @@ export interface WeekTrace {
     transferRate?: number; releaseRate?: number; transferMultiplier?: number; releaseMultiplier?: number
     retentionEffect?: { transfer: number; release: number }; lostTransfer?: number; lostRelease?: number
   }
-  hours: { paidHoursPerHead: number; shrinkage: number; surgePts: number; effectiveShrinkage: number; grossProductive: number; trainingHours: number; productive: number }
+  hours: { paidHoursPerHead: number; shrinkage: number; surgePts: number; seasonalPts: number; effectiveShrinkage: number; grossProductive: number; trainingHours: number; productive: number }
   borrowed: { active: boolean; fte: number; ahtPenalty: number; homeEquivalentHours: number; usedHours: number; idleHours: number }
   buckets: {
     name: string

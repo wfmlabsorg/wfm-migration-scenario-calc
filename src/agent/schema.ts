@@ -88,6 +88,7 @@ export interface Changes {
   stepDowns?: StepDown[] // replaces all step-downs when present
   balance?: { mode: string; order: string[]; emailFloor: number } // replaces the balancing policy when present
   book?: unknown // replaces the whole book block when present (validated)
+  shrinkSpikes?: { startWeek: number; weeks: number; pts: number }[] // replaces all seasonal spikes when present
 }
 
 /** Validates and applies changes to a copy of the inputs. Throws with a readable message on anything invalid. */
@@ -136,6 +137,15 @@ export function applyChanges(base: Inputs, c: Changes): Inputs {
       if (!(s.pct >= 0 && s.pct <= 1)) throw new Error('Step-down pct must be 0–1')
     }
     next.demand.stepDowns = c.stepDowns.map((s) => ({ week: s.week, pct: s.pct }))
+  }
+  if (c.shrinkSpikes) {
+    if (c.shrinkSpikes.length > 6) throw new Error('At most 6 seasonal spikes')
+    for (const s of c.shrinkSpikes) {
+      if (!Number.isInteger(s.startWeek) || s.startWeek < 0 || s.startWeek > 77) throw new Error('Spike startWeek must be a whole number 0–77')
+      if (!Number.isInteger(s.weeks) || s.weeks < 0 || s.weeks > 26) throw new Error('Spike weeks must be a whole number 0–26 (0 removes it)')
+      if (!(s.pts >= 0 && s.pts <= 0.5)) throw new Error('Spike pts must be 0–0.5 (extra shrinkage)')
+    }
+    next.seasonality = { spikes: c.shrinkSpikes.filter((s) => s.weeks > 0 && s.pts > 0).map((s) => ({ startWeek: s.startWeek, weeks: s.weeks, pts: s.pts })) }
   }
   if (c.book !== undefined) {
     next.book = validateBook(c.book) satisfies Book

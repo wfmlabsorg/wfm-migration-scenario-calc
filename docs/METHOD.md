@@ -38,7 +38,7 @@ Each run has two passes.
    and the email backlog carried in, and is converted to heads at this week's productive hours
    per head (after the absence surge and pre-wave training), so a release never leaves the team
    short in the week it happens.
-5. **Productive hours.** `heads × paid hours × (1 − shrinkage − surge) − training hours`.
+5. **Productive hours.** `heads × paid hours × (1 − shrinkage − surge − seasonal) − training hours`. Seasonal spikes are known periods of extra absence, such as summer holidays (the demo has one: +15 points for three weeks). Like the surge, they reduce available hours and never raise required FTE, so a spike shows as a dip in cover. Links and shape cards made before seasonality existed have none.
    Training is spread over the weeks before each wave for the staff that wave will move.
 
 Headcount always balances exactly:

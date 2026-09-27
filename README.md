@@ -22,6 +22,7 @@ staff leave before the work does. A headcount waterfall can't show that; this ca
 | After the freeze | Attrition after the announcement; absence surge; up to four waves (share of the book, staff move with it); training hours before each wave; optional release of surplus staff after a notice period |
 | Service model | Erlang A (default: patience per channel, redial share, abandonment cap on the grade) or Erlang C (no abandonment); optional Erlang C overlay |
 | Channel balancing | Strict priority (reorderable), protect email, share the shortfall, equal attainment |
+| Seasonal shrinkage | Known periods of extra absence (e.g. summer holidays): from week, weeks, extra shrinkage; up to six |
 | Borrowed capacity | FTE, weeks, AHT penalty, which channels it can handle |
 | Book of business | Optional: describe the book by contract mix, health mix, fate probabilities, notice ranges, waves as shares of transferring work and wave slip; the expected departure curve replaces manual step-downs, and the Monte Carlo draws real staircases |
 | People split | Optional: at the announcement the team divides into a transfer group and a release group with their own post-announcement attrition and a retention-offer lever |

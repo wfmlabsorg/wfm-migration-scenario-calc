@@ -254,6 +254,19 @@ export default function App() {
                 <NumberInput label="Paid hours / week" value={inputs.pool.paidHours} step={0.5} min={1} onChange={(v) => set((i) => { i.pool.paidHours = Math.max(1, v) })} />
                 <NumberInput label="Open hours / week" value={inputs.pool.openHours} step={1} min={1} onChange={(v) => set((i) => { i.pool.openHours = Math.max(1, v) })} />
               </div>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase mt-1 mb-1">Seasonal shrinkage</p>
+              <p className="text-[10px] text-gray-500 mb-1">Known periods of extra absence, such as summer holidays, added on top of base shrinkage (weeks counted from week 0).</p>
+              {(inputs.seasonality?.spikes ?? []).map((sp, k) => (
+                <div key={k} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1 items-end" data-testid="spike-row">
+                  <NumberInput label="From week" value={sp.startWeek} step={1} min={0} onChange={(v) => set((i) => { i.seasonality.spikes[k].startWeek = Math.min(77, Math.max(0, Math.round(v))) })} />
+                  <NumberInput label="Weeks" value={sp.weeks} step={1} min={1} onChange={(v) => set((i) => { i.seasonality.spikes[k].weeks = Math.min(26, Math.max(1, Math.round(v))) })} />
+                  <NumberInput label="Extra %" value={Math.round(sp.pts * 100)} step={1} min={0} onChange={(v) => set((i) => { i.seasonality.spikes[k].pts = Math.min(0.5, Math.max(0, v / 100)) })} />
+                  <button aria-label="Remove seasonal spike" className="mb-3 w-8 h-8 text-gray-500 hover:text-red-400" onClick={() => set((i) => { i.seasonality.spikes.splice(k, 1) })}>✕</button>
+                </div>
+              ))}
+              {(inputs.seasonality?.spikes ?? []).length < 6 && (
+                <button className="text-[11px] text-brand-400 hover:underline min-h-[32px]" onClick={() => set((i) => { i.seasonality = { spikes: [...(i.seasonality?.spikes ?? [])] }; i.seasonality.spikes.push({ startWeek: 30, weeks: 2, pts: 0.1, label: 'Holiday' }) })}>+ Add seasonal spike</button>
+              )}
             </Card>
 
             <Card title="Freeze period">
@@ -467,7 +480,7 @@ export default function App() {
 
             <Card title="Capacity by week">
               <CapacityChart result={result} compare={compare} bands={bands} />
-              <p className="text-[10px] text-gray-500 mt-2">Available FTE counts productive time (after shrinkage, the absence surge and pre-wave training) plus borrowed staff, in headcount at base shrinkage. Required FTE is what meets every target that week.</p>
+              <p className="text-[10px] text-gray-500 mt-2">Available FTE counts productive time (after shrinkage, seasonal spikes, the absence surge and pre-wave training) plus borrowed staff, in headcount at base shrinkage. Required FTE is what meets every target that week.</p>
             </Card>
 
             <div className="flex flex-wrap gap-2 items-center">

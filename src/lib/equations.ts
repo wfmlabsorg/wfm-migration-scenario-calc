@@ -39,7 +39,7 @@ Weeks w = 0 … W−1. Channels: voice (V), chat (C), email (E). Intraday bucket
 2. Attrition: rate q = min(1, annual ÷ 52 × m), m = 1 before the freeze, tensionMult during it, postMult after it; lost = H × q (Monte Carlo: Binomial(round H, q)).
 3. Backfill (before the freeze only, if on): hired = max(0, H₀ − H).
 4. Releases (if on, from freeze end + notice): released = max(0, H − (1 + buffer) × needHours ÷ prodPerHead), where needHours = the largest of the forecast required hours over the next lookahead weeks (no backlog) and this week's actual requirement including retries and the email backlog carried in, max(peak-bucket need, total need + E_w + max(0, backlog in − targetDays × E_w/5) ÷ 4), and prodPerHead = p × (1 − min(0.95, s + surge)) − training hours per head this week (so releases never leave the team short this week).
-5. Productive hours: P = max(0, H × p × (1 − min(0.95, s + surge)) − training), where surge = surgePts for surgeWeeks after the freeze ends, and training = Σ over waves due within trainingWeeks of H × π_j × trainingHours ÷ trainingWeeks.
+5. Productive hours: P = max(0, H × p × (1 − min(0.95, s + surge + seasonal)) − training), where surge = surgePts for surgeWeeks after the freeze ends, seasonal = the sum of seasonal spikes active that week (pts added from startWeek for weeks weeks; e.g. summer holidays), and training = Σ over waves due within trainingWeeks of H × π_j × trainingHours ÷ trainingWeeks.
 - Headcount identity: H₀ + Σhired = Σattrition + Σmoved + Σreleased + H_end.
 
 ### 3b. The team split at the announcement (people.split)

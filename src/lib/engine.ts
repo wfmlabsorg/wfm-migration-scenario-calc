@@ -403,6 +403,13 @@ function phaseOf(w: number, start: number, end: number): Phase {
   return w < start ? 'pre' : w < end ? 'freeze' : 'post'
 }
 
+/** Extra shrinkage from seasonal spikes in week w (overlapping spikes add). */
+export function seasonalPts(inp: Inputs, w: number): number {
+  let t = 0
+  for (const s of inp.seasonality?.spikes ?? []) if (w >= s.startWeek && w < s.startWeek + s.weeks) t += s.pts
+  return t
+}
+
 export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
   const W = inp.horizonWeeks
   const o = opts.overrides ?? {}
@@ -538,11 +545,12 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     // this week's productive hours per head: shrinkage plus the absence surge, less pre-wave training
     // (after the split, training falls on the transfer group only)
     const surge = phase === 'post' && w < freezeEnd + inp.after.surgeWeeks ? surgePts : 0
+    const seasonal = seasonalPts(inp, w)
     let trainPerHead = 0
     for (const wv of waves)
       if (inp.after.trainingWeeks > 0 && w >= wv.week - inp.after.trainingWeeks && w < wv.week)
         trainPerHead += ((splitDone ? wv.pctT : wv.pct) * inp.after.trainingHours) / inp.after.trainingWeeks
-    const grossPerHead = paidHours * (1 - Math.min(0.95, shrinkage + surge))
+    const grossPerHead = paidHours * (1 - Math.min(0.95, shrinkage + surge + seasonal))
     const prodPerHead = Math.max(1e-9, grossPerHead - trainPerHead)
 
     // 4. releases, only after the dismissal notice and never below the look-ahead need: the largest
@@ -577,7 +585,7 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
     for (const wv of waves)
       if (inp.after.trainingWeeks > 0 && w >= wv.week - inp.after.trainingWeeks && w < wv.week)
         trainingHours += ((splitDone ? T * wv.pctT : H * wv.pct) * inp.after.trainingHours) / inp.after.trainingWeeks
-    const P = Math.max(0, H * paidHours * (1 - Math.min(0.95, shrinkage + surge)) - trainingHours)
+    const P = Math.max(0, H * paidHours * (1 - Math.min(0.95, shrinkage + surge + seasonal)) - trainingHours)
     const b = inp.borrowed
     const borrowActive = w >= b.startWeek && w <= b.endWeek && b.fte > 0
     const Bhome = borrowActive ? (b.fte * paidHours * (1 - shrinkage)) / Math.max(1, b.ahtPenalty) : 0
@@ -700,8 +708,8 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
           } : {}),
         },
         hours: {
-          paidHoursPerHead: paidHours, shrinkage, surgePts: surge, effectiveShrinkage: Math.min(0.95, shrinkage + surge),
-          grossProductive: H * paidHours * (1 - Math.min(0.95, shrinkage + surge)), trainingHours, productive: P,
+          paidHoursPerHead: paidHours, shrinkage, surgePts: surge, seasonalPts: seasonal, effectiveShrinkage: Math.min(0.95, shrinkage + surge + seasonal),
+          grossProductive: H * paidHours * (1 - Math.min(0.95, shrinkage + surge + seasonal)), trainingHours, productive: P,
         },
         borrowed: { active: borrowActive, fte: borrowActive ? b.fte : 0, ahtPenalty: b.ahtPenalty, homeEquivalentHours: Bhome, usedHours: borrowedUsedHours, idleHours: borIdle },
         buckets: [0, 1, 2].map((k) => ({
@@ -747,6 +755,7 @@ export function run(inp: Inputs, opts: RunOptions = {}): RunResult {
       released,
       trainingHours,
       surgePts: surge,
+      seasonalPts: seasonal,
       prodHours: P,
       borrowedUsedHours,
       borrowedIdleHours: borIdle,

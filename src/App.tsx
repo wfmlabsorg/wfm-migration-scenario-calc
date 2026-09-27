@@ -6,6 +6,7 @@ import SliderInput from './components/inputs/SliderInput'
 import BalanceCard from './components/inputs/BalanceCard'
 import ServiceModelCard from './components/inputs/ServiceModelCard'
 import AssumptionsCard from './components/inputs/AssumptionsCard'
+import ErrorBoundary from './components/ErrorBoundary'
 import BookCard from './components/inputs/BookCard'
 import { syncRegister } from './lib/register'
 import { cardWarnings, fromShapeCard, parseTeamSize, toShapeCard } from './lib/shapeCard'
@@ -571,7 +572,9 @@ export default function App() {
         </div>
       </main>
 
-      <AgentPanel open={showAgent} onClose={() => setShowAgent(false)} inputs={inputs} result={result} onApply={onAgentApply} />
+      <ErrorBoundary label="The analyst" compact onReset={() => setShowAgent(false)}>
+        <AgentPanel open={showAgent} onClose={() => setShowAgent(false)} inputs={inputs} result={result} onApply={onAgentApply} />
+      </ErrorBoundary>
 
       {showInfo && (
         <div className="fixed inset-0 z-40 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowInfo(false)}>
